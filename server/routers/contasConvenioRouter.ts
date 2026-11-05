@@ -10,7 +10,9 @@ import { EasyVisionConnector } from "../connectors/EasyVisionConnector";
 import { OracleConnector } from "../connectors/OracleConnector";
 import { SqlServerConnector } from "../connectors/SqlServerConnector";
 import { MysqlConnector } from "../connectors/MysqlConnector";
-import { ENV } from "../_core/env";
+import { lerContaFabricaBanco } from "../fabricaBancoOrigem";
+import { prepararColecaoBanco } from "../fabricaBancoSnapshot";
+import { resolverSnapshotLeituraBanco, negarMutacaoBancoSemEscopo, filtroItemBancoAtivo, filtroResumoBancoAtivo } from "../fabricaBancoLeitura";
 import { logger } from "../_core/logger";
 import { compararContaComPadroes, resolverConvenioIdParaConta } from "../services/comparadorPadroes";
 import { agruparResumosContaXml } from "../contasConvenioResumoUtils";
@@ -65,1112 +67,22 @@ export const contasConvenioRouter = router({
   // BUSCAR CONTA NO BANCO DO CLIENTE (via Integrador de Dados)
   // ============================================================
   buscarConta: protectedProcedure
-    .input(z.object({
-      numeroConta: z.string().min(1, "Número da conta é obrigatório"),
-      estabelecimentoId: z.number(),
-      forceRemote: z.boolean().optional().default(false),
-    }))
+    .input(z.object({ numeroConta: z.string().trim().min(1).max(64), estabelecimentoId: z.number().int().positive(), forceRemote: z.boolean().optional().default(false) }))
     .mutation(async ({ input, ctx }) => {
       await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
-
-      logger.info({
-        message: "Buscando conta via Integrador de Dados",
-        numeroConta: input.numeroConta,
-        estabelecimentoId: input.estabelecimentoId,
-      });
-
-      // ============================================================
-      // 1. Buscar mapeamento "Busca Conta" na tabela integracao_mapeamentos
-      //    (cadastrado via Integrador de Dados > Mapeamentos)
-      // ============================================================
-      const mapeamentos = await db
-        .select()
-        .from(integracaoMapeamentos)
-        .where(
-          and(
-            eq(integracaoMapeamentos.estabelecimentoId, input.estabelecimentoId),
-            eq(integracaoMapeamentos.ativo, "sim"),
-            like(integracaoMapeamentos.nome, "%Busca Conta%"),
-          )
-        )
-        .limit(1);
-
-      // Fallback: tentar também na query_configuracoes (compatibilidade)
-      let querySql: string;
-      let conexaoConfig: { host: string; port: number; database: string; user: string; password: string } | null = null;
-      let configSource = "";
-      let tipoBancoOrigem = "postgres";
-
-      if (mapeamentos.length > 0) {
-        // Encontrou no integracao_mapeamentos
-        const mapeamento = mapeamentos[0];
-        querySql = mapeamento.queryOrigem;
-        configSource = `mapeamento #${mapeamento.id}`;
-
-        // Buscar conexão associada
-        const [conexao] = await db
-          .select()
-          .from(integracaoConexoes)
-          .where(eq(integracaoConexoes.id, mapeamento.conexaoOrigemId));
-
-        if (conexao) {
-          tipoBancoOrigem = conexao.tipo;
-          const senha = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
-          conexaoConfig = {
-            host: conexao.host,
-            port: conexao.porta,
-            database: conexao.banco,
-            user: conexao.usuario,
-            password: senha,
-          };
-        }
-      } else {
-        // Fallback: buscar na query_configuracoes (modelo antigo)
-        const configs = await db
-          .select()
-          .from(queryConfiguracoes)
-          .where(
-            and(
-              eq(queryConfiguracoes.estabelecimentoId, input.estabelecimentoId),
-              eq(queryConfiguracoes.tipoDados, "busca_conta"),
-              eq(queryConfiguracoes.ativo, true),
-            )
-          )
-          .limit(1);
-
-        if (configs.length > 0) {
-          const config = configs[0];
-          querySql = config.querySql;
-          configSource = `query_config #${config.id}`;
-          
-          if (config.sistema === "tasy") tipoBancoOrigem = "oracle";
-          else if (config.sistema === "omni" || config.sistema === "gesthor") tipoBancoOrigem = "firebird";
-          else tipoBancoOrigem = "postgres";
-
-          if (config.conexaoConfig) {
-            const parsed = typeof config.conexaoConfig === "string"
-              ? JSON.parse(config.conexaoConfig)
-              : config.conexaoConfig;
-            conexaoConfig = parsed;
-          }
-        } else {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: `Nenhuma configuração de "Busca Conta" encontrada para este estabelecimento. Acesse o Integrador de Dados > Mapeamentos e cadastre um mapeamento com nome "Busca Conta" vinculado à conexão do banco do hospital.`,
-          });
-        }
-      }
-
-      // Fallback para variáveis de ambiente se a conexão não foi encontrada
-      if (!conexaoConfig && ENV.warleineDbHost) {
-        conexaoConfig = {
-          host: ENV.warleineDbHost,
-          port: parseInt(ENV.warleineDbPort),
-          database: ENV.warleineDbName,
-          user: ENV.warleineDbUser,
-          password: ENV.warleineDbPassword,
-        };
-        configSource += " (fallback ENV)";
-      }
-
-      if (!conexaoConfig) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Nenhuma conexão configurada para busca de conta. Configure a conexão no Integrador de Dados.",
-        });
-      }
-
-      logger.info({
-        message: "Usando configuração do Integrador de Dados",
-        source: configSource,
-        conexao: { ...conexaoConfig, password: "***" },
-      });
-
-      // ============================================================
-      // 2. Conectar ao banco do hospital Dinamicamente
-      // ============================================================
-      let connector: any;
-      
-      switch(tipoBancoOrigem.toLowerCase()) {
-        case "oracle":
-        case "tasy":
-          connector = new OracleConnector(conexaoConfig);
-          break;
-        case "mysql":
-          connector = new MysqlConnector(conexaoConfig);
-          break;
-        case "sqlserver":
-          connector = new SqlServerConnector(conexaoConfig);
-          break;
-        case "firebird":
-          throw new TRPCError({
-            code: "NOT_IMPLEMENTED",
-            message: "Conector Firebird ainda não implementado no SAFATLE.",
-          });
-        case "postgres":
-        default:
-          connector = new EasyVisionConnector(conexaoConfig);
-          break;
-      }
-
-      let conectado = false;
-      try {
-        conectado = await connector.conectar();
-      } catch (connError) {
-        const errMsg = connError instanceof Error ? connError.message : String(connError);
-        logger.error({
-          message: "Erro ao conectar ao banco do hospital",
-          error: errMsg,
-          host: conexaoConfig.host,
-          port: conexaoConfig.port,
-          database: conexaoConfig.database,
-        });
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Falha ao conectar ao banco do hospital (${conexaoConfig.host}:${conexaoConfig.port}/${conexaoConfig.database}): ${errMsg}`,
-        });
-      }
-
-      if (!conectado) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Falha ao conectar ao banco do hospital (${conexaoConfig.host}:${conexaoConfig.port}/${conexaoConfig.database}). Verifique se o servidor está acessível e as credenciais estão corretas no Integrador de Dados.`,
-        });
-      }
-
-      try {
-        // ============================================================
-        // 3. Executar a query cadastrada no Integrador
-        //    A query deve usar $1 como placeholder para o número da conta
-        // ============================================================
-        logger.info({
-          message: "Executando query de busca de conta",
-          source: configSource,
-          numeroConta: input.numeroConta,
-          queryPreview: querySql.substring(0, 200) + "...",
-        });
-
-        let dados: any[];
-        let fonteDados: "BANCO_REMOTO" | "CACHE_LOCAL" = "BANCO_REMOTO";
-        try {
-          dados = await connector.executarQuery(querySql, [input.numeroConta]);
-          fonteDados = "BANCO_REMOTO";
-        } catch (queryError) {
-          const errMsg = queryError instanceof Error ? queryError.message : String(queryError);
-          logger.warn({
-            message: "Query do Integrador falhou",
-            error: errMsg,
-            forceRemote: input.forceRemote,
-          });
-
-          await connector.desconectar();
-
-          // Se forceRemote=true, NÃO usar fallback - retornar erro direto
-          if (input.forceRemote) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Falha ao buscar conta diretamente do banco do hospital: ${errMsg}. Verifique se a conexão está ativa e a query está correta no Integrador de Dados.`,
-            });
-          }
-
-          // Fallback: buscar da tabela local integ_faturado (dados já sincronizados)
-          // AVISO: esses dados podem estar desatualizados!
-          const localResult = await db.execute(sql`
-            SELECT 
-              numconta as numconta,
-              guiacobra,
-              aihguia,
-              protocolo,
-              numfatura,
-              nomeconv,
-              codconv,
-              matricula,
-              tipoproc,
-              procdisco as codigoitem,
-              codproprio as codigoitemtuss,
-              descricao,
-              data as dataexecucao,
-              dataint as datainternacao,
-              datasai as dataalta,
-              mesprod as competencia,
-              nomeprest,
-              prestexe,
-              nomecc as setor,
-              vl_unitario as valorunitario,
-              quantidade,
-              vl_faturado as valortotal,
-              codtiss,
-              funcaotiss,
-              codcc,
-              receber,
-              '' as pacientenome
-            FROM integ_faturado
-            WHERE numconta = ${input.numeroConta}
-              AND estabelecimento_id = ${input.estabelecimentoId}
-            ORDER BY data, tipoproc, descricao
-          `);
-
-          dados = (localResult as any)[0] || [];
-          fonteDados = "CACHE_LOCAL";
-
-          if (dados.length > 0) {
-            logger.warn({
-              message: "ATENÇÃO: Dados carregados do CACHE LOCAL (integ_faturado) - podem estar DESATUALIZADOS!",
-              numeroConta: input.numeroConta,
-              totalItens: dados.length,
-              motivoFallback: errMsg,
-            });
-          }
-        }
-
-        await connector.desconectar();
-
-        if (!dados || dados.length === 0) {
-          return {
-            sucesso: false,
-            mensagem: `Conta ${input.numeroConta} não encontrada no banco do cliente.`,
-            totalItens: 0,
-            conta: null,
-          };
-        }
-
-        // Log dos campos retornados para debug
-        if (dados.length > 0) {
-          logger.info({
-            message: "Conta encontrada - campos retornados",
-            numeroConta: input.numeroConta,
-            totalItens: dados.length,
-            camposDisponiveis: Object.keys(dados[0]),
-            amostra: Object.fromEntries(
-              Object.entries(dados[0]).map(([k, v]) => [k, v === null ? 'NULL' : String(v).substring(0, 50)])
-            ),
-          });
-        } else {
-          logger.info({
-            message: "Conta encontrada no Warleine (sem itens)",
-            numeroConta: input.numeroConta,
-            totalItens: dados.length,
-          });
-        }
-
-        // ============================================================
-        // CAPTURAR DADOS ANTIGOS ANTES DO DELETE (para comparativo)
-        // ============================================================
-        const dadosAntigos = await db.select({
-          id: contasConvenioItens.id,
-          codigoItem: contasConvenioItens.codigoItem,
-          descricaoItem: contasConvenioItens.descricaoItem,
-          quantidade: contasConvenioItens.quantidade,
-          valorUnitario: contasConvenioItens.valorUnitario,
-          valorTotal: contasConvenioItens.valorTotal,
-          tipoItem: contasConvenioItens.tipoItem,
-          dataExecucao: contasConvenioItens.dataExecucao,
-          setor: contasConvenioItens.setor,
-        }).from(contasConvenioItens).where(
-          and(
-            eq(contasConvenioItens.numeroConta, input.numeroConta),
-            eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-            eq(contasConvenioItens.origem, "BANCO_CLIENTE"),
-          )
-        );
-
-        const resumoAntigo = await db.select({
-          totalItens: contasConvenioResumo.totalItens,
-          valorTotal: contasConvenioResumo.valorTotal,
-        }).from(contasConvenioResumo).where(
-          and(
-            eq(contasConvenioResumo.numeroConta, input.numeroConta),
-            eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
-            eq(contasConvenioResumo.origem, "BANCO_CLIENTE"),
-          )
-        ).limit(1);
-
-        const hadPreviousData = dadosAntigos.length > 0;
-        const valorTotalAnterior = resumoAntigo[0] ? parseFloat(String(resumoAntigo[0].valorTotal || "0")) : 0;
-        const totalItensAnterior = resumoAntigo[0]?.totalItens || 0;
-
-        // Criar mapa dos itens antigos por chave (codigo + data + setor)
-        const mapaAntigos = new Map<string, { quantidade: string | null; valorUnitario: string | null; valorTotal: string | null; descricaoItem: string | null }>();
-        for (const item of dadosAntigos) {
-          const chave = `${item.codigoItem || ''}_${item.dataExecucao ? new Date(item.dataExecucao).toISOString().split('T')[0] : ''}_${item.setor || ''}`;
-          mapaAntigos.set(chave, {
-            quantidade: item.quantidade,
-            valorUnitario: item.valorUnitario,
-            valorTotal: item.valorTotal,
-            descricaoItem: item.descricaoItem,
-          });
-        }
-
-        // Limpar dados existentes desta conta (se já foi buscada antes)
-        await db.delete(contasConvenioItens).where(
-          and(
-            eq(contasConvenioItens.numeroConta, input.numeroConta),
-            eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-            eq(contasConvenioItens.origem, "BANCO_CLIENTE"),
-          )
-        );
-
-        // Limpar resumo existente
-        await db.delete(contasConvenioResumo).where(
-          and(
-            eq(contasConvenioResumo.numeroConta, input.numeroConta),
-            eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
-            eq(contasConvenioResumo.origem, "BANCO_CLIENTE"),
-          )
-        );
-
-        // Inserir itens na nova tabela
-        const BATCH_SIZE = 100;
-        let totalInseridos = 0;
-        let valorTotalConta = 0;
-        const primeiroItem = dados[0];
-
-        // Helper: busca campo flexível (aceita múltiplos nomes possíveis)
-        const getField = (row: any, ...names: string[]): any => {
-          for (const name of names) {
-            if (row[name] !== undefined && row[name] !== null) return row[name];
-            // Tentar lowercase
-            if (row[name.toLowerCase()] !== undefined && row[name.toLowerCase()] !== null) return row[name.toLowerCase()];
-            // Tentar uppercase (especialmente importante para o Oracle)
-            if (row[name.toUpperCase()] !== undefined && row[name.toUpperCase()] !== null) return row[name.toUpperCase()];
-          }
-          return null;
-        };
-
-        const parseNum = (val: any): number => {
-          if (val === null || val === undefined) return 0;
-          const n = parseFloat(String(val).replace(',', '.'));
-          return isNaN(n) ? 0 : n;
-        };
-
-        const resumoConvenioInicial = getField(primeiroItem, 'nomeconv', 'nome_conv', 'convenio', 'nomeconvenio');
-        const resumoCodConvInicial = getField(primeiroItem, 'codconv', 'cod_conv', 'codigo_convenio');
-        const convenioIdResolvidoConta = await resolverConvenioIdParaConta(
-          db,
-          input.estabelecimentoId,
-          resumoConvenioInicial ? String(resumoConvenioInicial) : null,
-          resumoCodConvInicial ? String(resumoCodConvInicial) : null,
-        );
-
-        const linhasComItem = dados.filter((row: any) => {
-          const cod = getField(row, 'codigoitem', 'procdisco', 'cod_item', 'cd_item', 'codigo_item', 'codigoitemtuss', 'codproprio', 'cod_tuss', 'codigo_tuss', 'cd_item_tuss');
-          const desc = getField(row, 'descricao', 'desc_item', 'ds_item');
-          const vt = parseNum(getField(row, 'valortotal', 'vl_faturado', 'valor_total', 'vlfaturado', 'valor_faturado', 'vl_produzido'));
-          return Boolean(cod || desc || vt > 0);
-        });
-        for (let i = 0; i < linhasComItem.length; i += BATCH_SIZE) {
-          const batch = linhasComItem.slice(i, i + BATCH_SIZE);
-          const values = batch.map((row: any) => {
-            // Flexibilizar nomes de campos - aceita tanto aliases quanto nomes originais do banco
-            const vlUnitario = getField(row, 'valorunitario', 'vl_unitario', 'valor_unitario', 'vlunitario', 'vl_medico');
-            const vlTotal = getField(row, 'valortotal', 'vl_faturado', 'valor_total', 'vlfaturado', 'valor_faturado', 'vl_produzido');
-            const qtd = getField(row, 'quantidade', 'qtd', 'qtde');
-            const numConta = getField(row, 'numconta', 'numero_conta', 'conta');
-            const guia = getField(row, 'guiacobra', 'guia_cobra', 'guia');
-            const aihGuia = getField(row, 'aihguia', 'aih_guia', 'aih');
-            const nomeConv = getField(row, 'nomeconv', 'nome_conv', 'convenio', 'nomeconvenio');
-            const codConv = getField(row, 'codconv', 'cod_conv', 'codigo_convenio');
-            const codItem = getField(row, 'codigoitem', 'procdisco', 'cod_item', 'cd_item', 'codigo_item');
-            const codTuss = getField(row, 'codigoitemtuss', 'codproprio', 'cod_tuss', 'codigo_tuss', 'cd_item_tuss');
-            const desc = getField(row, 'descricao', 'desc_item', 'ds_item');
-            const dataExec = getField(row, 'dataexecucao', 'data', 'dt_item', 'data_execucao', 'dt_procedimento', 'dt_conta');
-            const dataInt = getField(row, 'datainternacao', 'dataint', 'data_internacao', 'dt_inicio');
-            const dataAlta = getField(row, 'dataalta', 'datasai', 'data_alta', 'data_saida', 'dt_fim');
-            const comp = getField(row, 'competencia', 'mesprod', 'mes_prod', 'comp', 'encerramento');
-            const prest = getField(row, 'nomeprest', 'prestexe', 'nome_prest', 'prof_exec');
-            const setor = getField(row, 'setor', 'nomecc', 'nome_cc', 'centro_custo');
-            const paciente = getField(row, 'pacientenome', 'nomepaciente', 'nomepac', 'nome_paciente', 'paciente');
-            const tipoProc = getField(row, 'tipoproc', 'tipo_proc', 'tipo_item');
-            const codRecur = getField(row, 'codrecur', 'cod_recur', 'codigo_recurso');
-            const complRecur = getField(row, 'complrecur', 'compl_recur', 'complemento_recurso');
-            const codTissGlosa = getField(row, 'codtiss', 'cod_tiss', 'codigo_tiss_glosa');
-            const descMotivoGlosa = getField(row, 'descmotivo', 'desc_motivo', 'motivo_glosa');
-            const tipoAtend = getField(row, 'tipoatend', 'tipo_atend', 'tipo_atendimento');
-            const dataBaixa = getField(row, 'databaixa', 'data_baixa');
-            const codPlaco = getField(row, 'codplaco', 'cod_placo');
-            const nomePlaco = getField(row, 'nomeplaco', 'nome_placo', 'plano');
-            const medSolic = getField(row, 'medsolic', 'med_solic', 'medico_solicitante');
-            const nomeMedSolic = getField(row, 'nomemedsolic', 'nome_med_solic', 'nome_medico_solicitante');
-            const codGrufi = getField(row, 'codgrufi', 'cod_grufi', 'grupo_financeiro');
-            const funcaoTiss = getField(row, 'funcaotiss', 'funcao_tiss');
-            const receber = getField(row, 'receber', 'a_receber');
-            const codConvVal = getField(row, 'codconv', 'cod_conv', 'codigo_convenio');
-            const protocolo = getField(row, 'protocolo', 'num_protocolo');
-            const numFatura = getField(row, 'numfatura', 'num_fatura');
-            const matricula = getField(row, 'matricula', 'carteirinha');
-            const prestExe = getField(row, 'prestexe', 'prest_exe', 'cod_prestador');
-
-            const vt = parseNum(vlTotal);
-            valorTotalConta += vt;
-            
-            // Mapear tipo de procedimento
-            let tipoItem = tipoProc || 'OUTROS';
-            if (typeof tipoItem === 'string') {
-              const ti = tipoItem.toLowerCase();
-              if (ti.includes('proc')) tipoItem = 'PROCEDIMENTO';
-              else if (ti.includes('diar')) tipoItem = 'DIARIA';
-              else if (ti.includes('mat') || ti.includes('med')) tipoItem = 'MAT_MED';
-              else if (ti.includes('tax')) tipoItem = 'TAXA';
-              else if (ti.includes('gas')) tipoItem = 'GASES';
-            }
-
-            return {
-              origem: "BANCO_CLIENTE" as const,
-              numeroConta: String(numConta || input.numeroConta),
-              numeroGuia: guia ? String(guia) : null,
-              numeroGuiaOperadora: aihGuia ? String(aihGuia) : null,
-              protocolo: protocolo ? String(protocolo) : null,
-              numeroLote: numFatura ? String(numFatura) : null,
-              pacienteNome: paciente ? String(paciente) : null,
-              carteiraBeneficiario: matricula ? String(matricula) : null,
-              convenio: nomeConv ? String(nomeConv).trim() : null,
-              convenioId: convenioIdResolvidoConta,
-              estabelecimentoId: input.estabelecimentoId,
-              tipoItem,
-              codigoItem: codItem ? String(codItem) : null,
-              codigoItemTuss: codTuss ? String(codTuss) : null,
-              descricaoItem: desc ? String(desc) : null,
-              quantidade: qtd ? String(parseNum(qtd)) : null,
-              valorUnitario: vlUnitario ? String(parseNum(vlUnitario)) : null,
-              valorTotal: vt ? String(vt) : null,
-              dataExecucao: parseDataCivilConta(dataExec),
-              competencia: comp ? String(comp).replace('/', '-') : null,
-              profissionalExecutante: prest ? String(prest) : (nomeMedSolic ? String(nomeMedSolic) : null),
-              setor: setor ? String(setor) : null,
-              statusAnalise: "pendente" as const,
-            };
-          });
-
-          await db.insert(contasConvenioItens).values(values);
-          totalInseridos += batch.length;
-        }
-
-        // Criar resumo da conta (usando getField para flexibilidade)
-        const resumoConvenio = getField(primeiroItem, 'nomeconv', 'nome_conv', 'convenio', 'nomeconvenio');
-        const resumoPaciente = getField(primeiroItem, 'pacientenome', 'nomepaciente', 'nomepac', 'nome_paciente', 'paciente');
-        const resumoMatricula = getField(primeiroItem, 'matricula', 'carteirinha', 'carteira');
-        const resumoDataInt = getField(primeiroItem, 'datainternacao', 'dataint', 'data_internacao');
-        const resumoDataAlta = getField(primeiroItem, 'dataalta', 'datasai', 'data_alta', 'data_saida');
-        const resumoComp = getField(primeiroItem, 'competencia', 'mesprod', 'mes_prod', 'comp');
-
-        await db.insert(contasConvenioResumo).values({
-          numeroConta: input.numeroConta,
-          estabelecimentoId: input.estabelecimentoId,
-          origem: "BANCO_CLIENTE",
-          convenio: resumoConvenio ? String(resumoConvenio).trim() : null,
-          convenioId: convenioIdResolvidoConta,
-          pacienteNome: resumoPaciente ? String(resumoPaciente) : null,
-          carteiraBeneficiario: resumoMatricula ? String(resumoMatricula) : null,
-          totalItens: totalInseridos,
-          valorTotal: String(valorTotalConta),
-          dataInternacao: parseDataCivilConta(resumoDataInt),
-          dataAlta: parseDataCivilConta(resumoDataAlta),
-          competencia: resumoComp ? String(resumoComp).replace('/', '-') : null,
-          statusAnalise: "pendente",
-          buscadoPor: ctx.user?.id || null,
-        });
-
-        const avisoFallback = fonteDados === "CACHE_LOCAL"
-          ? " ⚠️ ATENÇÃO: Dados carregados do cache local (podem estar desatualizados). Use 'Reimportar do Banco' para buscar dados atualizados diretamente do sistema do hospital."
-          : "";
-
-        // ============================================================
-        // COMPARATIVO: Gerar diff entre dados antigos e novos
-        // ============================================================
-        let comparativo: {
-          hadPreviousData: boolean;
-          valorAnterior: number;
-          valorNovo: number;
-          diferencaValor: number;
-          totalItensAnterior: number;
-          totalItensNovo: number;
-          itensAlterados: Array<{
-            codigoItem: string;
-            descricaoItem: string;
-            campo: string;
-            valorAntigo: string;
-            valorNovo: string;
-          }>;
-          itensAdicionados: number;
-          itensRemovidos: number;
-          valorItensAdicionados: number;
-          valorItensRemovidos: number;
-          diferencaAlteracoes: number;
-          listaItensAdicionados: Array<{ codigoItem: string; descricaoItem: string; valorTotal: string; quantidade: string }>;
-          listaItensRemovidos: Array<{ codigoItem: string; descricaoItem: string; valorTotal: string; quantidade: string }>;
-          statusAjustesAuditoria: Array<{
-            tipoAjuste: string;
-            codigoItem: string;
-            descricaoItem: string;
-            quantidadeOriginal: string | null;
-            quantidadeAjustada: string | null;
-            valorOriginal: string | null;
-            valorAjustado: string | null;
-            quantidadeAtual: string | null;
-            valorAtual: string | null;
-            status: string;
-            observacao: string;
-          }>;
-          totalAjustesCorrigidos: number;
-          totalAjustesParciais: number;
-          totalAjustesNaoCorrigidos: number;
-        } | null = null;
-
-        if (hadPreviousData) {
-          // Buscar os novos itens recém inseridos para comparar
-          const dadosNovos = await db.select({
-            codigoItem: contasConvenioItens.codigoItem,
-            descricaoItem: contasConvenioItens.descricaoItem,
-            quantidade: contasConvenioItens.quantidade,
-            valorUnitario: contasConvenioItens.valorUnitario,
-            valorTotal: contasConvenioItens.valorTotal,
-            tipoItem: contasConvenioItens.tipoItem,
-            dataExecucao: contasConvenioItens.dataExecucao,
-            setor: contasConvenioItens.setor,
-          }).from(contasConvenioItens).where(
-            and(
-              eq(contasConvenioItens.numeroConta, input.numeroConta),
-              eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-              eq(contasConvenioItens.origem, "BANCO_CLIENTE"),
-            )
-          );
-
-          const itensAlterados: Array<{
-            codigoItem: string;
-            descricaoItem: string;
-            campo: string;
-            valorAntigo: string;
-            valorNovo: string;
-          }> = [];
-
-          // Criar mapa dos novos
-          const mapaNovos = new Set<string>();
-          for (const item of dadosNovos) {
-            const chave = `${item.codigoItem || ''}_${item.dataExecucao ? new Date(item.dataExecucao).toISOString().split('T')[0] : ''}_${item.setor || ''}`;
-            mapaNovos.add(chave);
-
-            const antigo = mapaAntigos.get(chave);
-            if (antigo) {
-              // Comparar campos
-              if (antigo.valorTotal !== item.valorTotal) {
-                itensAlterados.push({
-                  codigoItem: item.codigoItem || '-',
-                  descricaoItem: item.descricaoItem || '-',
-                  campo: 'Valor Total',
-                  valorAntigo: `R$ ${parseFloat(antigo.valorTotal || '0').toFixed(2)}`,
-                  valorNovo: `R$ ${parseFloat(item.valorTotal || '0').toFixed(2)}`,
-                });
-              }
-              if (antigo.quantidade !== item.quantidade) {
-                itensAlterados.push({
-                  codigoItem: item.codigoItem || '-',
-                  descricaoItem: item.descricaoItem || '-',
-                  campo: 'Quantidade',
-                  valorAntigo: antigo.quantidade || '0',
-                  valorNovo: item.quantidade || '0',
-                });
-              }
-              if (antigo.valorUnitario !== item.valorUnitario) {
-                itensAlterados.push({
-                  codigoItem: item.codigoItem || '-',
-                  descricaoItem: item.descricaoItem || '-',
-                  campo: 'Valor Unitário',
-                  valorAntigo: `R$ ${parseFloat(antigo.valorUnitario || '0').toFixed(2)}`,
-                  valorNovo: `R$ ${parseFloat(item.valorUnitario || '0').toFixed(2)}`,
-                });
-              }
-            }
-          }
-
-          // Contar e somar valor dos itens adicionados (estão nos novos mas não nos antigos)
-          let itensAdicionados = 0;
-          let valorItensAdicionados = 0;
-          const listaItensAdicionados: Array<{ codigoItem: string; descricaoItem: string; valorTotal: string; quantidade: string }> = [];
-          for (const item of dadosNovos) {
-            const chave = `${item.codigoItem || ''}_${item.dataExecucao ? new Date(item.dataExecucao).toISOString().split('T')[0] : ''}_${item.setor || ''}`;
-            if (!mapaAntigos.has(chave)) {
-              itensAdicionados++;
-              valorItensAdicionados += parseFloat(item.valorTotal || '0');
-              listaItensAdicionados.push({
-                codigoItem: item.codigoItem || '-',
-                descricaoItem: item.descricaoItem || '-',
-                valorTotal: `R$ ${parseFloat(item.valorTotal || '0').toFixed(2)}`,
-                quantidade: item.quantidade || '1',
-              });
-            }
-          }
-
-          // Contar e somar valor dos itens removidos (estão nos antigos mas não nos novos)
-          let itensRemovidos = 0;
-          let valorItensRemovidos = 0;
-          const listaItensRemovidos: Array<{ codigoItem: string; descricaoItem: string; valorTotal: string; quantidade: string }> = [];
-          for (const [chave, itemAntigo] of mapaAntigos) {
-            if (!mapaNovos.has(chave)) {
-              itensRemovidos++;
-              valorItensRemovidos += parseFloat(itemAntigo.valorTotal || '0');
-              // Extrair codigoItem da chave
-              const codigoItem = chave.split('_')[0] || '-';
-              listaItensRemovidos.push({
-                codigoItem,
-                descricaoItem: itemAntigo.descricaoItem || '-',
-                valorTotal: `R$ ${parseFloat(itemAntigo.valorTotal || '0').toFixed(2)}`,
-                quantidade: itemAntigo.quantidade || '1',
-              });
-            }
-          }
-
-          // Calcular diferença líquida das alterações de valor (apenas itens que existiam antes e depois)
-          let diferencaAlteracoes = 0;
-          for (const item of dadosNovos) {
-            const chave = `${item.codigoItem || ''}_${item.dataExecucao ? new Date(item.dataExecucao).toISOString().split('T')[0] : ''}_${item.setor || ''}`;
-            const antigo = mapaAntigos.get(chave);
-            if (antigo) {
-              const valNovo = parseFloat(item.valorTotal || '0');
-              const valAntigo = parseFloat(antigo.valorTotal || '0');
-              if (valNovo !== valAntigo) {
-                diferencaAlteracoes += (valNovo - valAntigo);
-              }
-            }
-          }
-
-          // ============================================================
-          // CRUZAR COM AJUSTES DA AUDITORIA
-          // ============================================================
-          const ajustesAudit = await db.select().from(ajustesAuditoria).where(
-            and(
-              eq(ajustesAuditoria.numeroConta, input.numeroConta),
-              eq(ajustesAuditoria.estabelecimentoId, input.estabelecimentoId),
-              eq(ajustesAuditoria.status, "aplicado"),
-            )
-          );
-
-          // Criar mapa dos novos itens por código para cruzamento
-          const mapaNovosPorCodigo = new Map<string, Array<{ quantidade: string | null; valorUnitario: string | null; valorTotal: string | null; descricaoItem: string | null; dataExecucao: Date | null }>>();
-          for (const item of dadosNovos) {
-            const cod = item.codigoItem || '';
-            if (!mapaNovosPorCodigo.has(cod)) mapaNovosPorCodigo.set(cod, []);
-            mapaNovosPorCodigo.get(cod)!.push(item);
-          }
-
-          // Criar mapa de itemId -> dataExecucao dos itens antigos (para cruzar com ajustes)
-          const mapaItemIdData = new Map<number, string>();
-          for (const item of dadosAntigos) {
-            if (item.id && item.dataExecucao) {
-              mapaItemIdData.set(item.id, formatDataCivilBR(item.dataExecucao));
-            }
-          }
-
-          const statusAjustes: Array<{
-            tipoAjuste: string;
-            codigoItem: string;
-            descricaoItem: string;
-            dataExecucao: string | null;
-            quantidadeOriginal: string | null;
-            quantidadeAjustada: string | null;
-            valorOriginal: string | null;
-            valorAjustado: string | null;
-            quantidadeAtual: string | null;
-            valorAtual: string | null;
-            status: 'corrigido' | 'parcialmente_corrigido' | 'nao_corrigido' | 'item_nao_encontrado';
-            observacao: string;
-          }> = [];
-
-          for (const aj of ajustesAudit) {
-            const cod = aj.codigoItem || '';
-            const itensNovos = mapaNovosPorCodigo.get(cod) || [];
-            const itemNovo = itensNovos[0];
-            // Obter data de execução do item (do ajuste via itemId, ou do item novo)
-            const dataExecItem = aj.itemId ? (mapaItemIdData.get(aj.itemId) || null) : (itemNovo?.dataExecucao ? formatDataCivilBR(itemNovo.dataExecucao) : null);
-
-            if (aj.tipoAjuste === 'ADICIONAR_ITEM') {
-              // Verificar se o item foi adicionado
-              if (itensNovos.length > 0) {
-                statusAjustes.push({
-                  tipoAjuste: aj.tipoAjuste,
-                  codigoItem: cod,
-                  descricaoItem: aj.descricaoItem || '-',
-                  dataExecucao: dataExecItem,
-                  quantidadeOriginal: null,
-                  quantidadeAjustada: aj.quantidadeAjustada,
-                  valorOriginal: null,
-                  valorAjustado: aj.valorAjustado,
-                  quantidadeAtual: itemNovo?.quantidade || null,
-                  valorAtual: itemNovo?.valorTotal || null,
-                  status: 'corrigido',
-                  observacao: `Item adicionado conforme auditoria`,
-                });
-              } else {
-                statusAjustes.push({
-                  tipoAjuste: aj.tipoAjuste,
-                  codigoItem: cod,
-                  descricaoItem: aj.descricaoItem || '-',
-                  dataExecucao: dataExecItem,
-                  quantidadeOriginal: null,
-                  quantidadeAjustada: aj.quantidadeAjustada,
-                  valorOriginal: null,
-                  valorAjustado: aj.valorAjustado,
-                  quantidadeAtual: null,
-                  valorAtual: null,
-                  status: 'nao_corrigido',
-                  observacao: `Item NÃO encontrado na reimportação`,
-                });
-              }
-            } else if (aj.tipoAjuste === 'REMOVER_ITEM') {
-              if (itensNovos.length === 0) {
-                statusAjustes.push({
-                  tipoAjuste: aj.tipoAjuste,
-                  codigoItem: cod,
-                  descricaoItem: aj.descricaoItem || '-',
-                  dataExecucao: dataExecItem,
-                  quantidadeOriginal: aj.quantidadeOriginal,
-                  quantidadeAjustada: '0',
-                  valorOriginal: aj.valorOriginal,
-                  valorAjustado: '0',
-                  quantidadeAtual: null,
-                  valorAtual: null,
-                  status: 'corrigido',
-                  observacao: `Item removido conforme auditoria`,
-                });
-              } else {
-                statusAjustes.push({
-                  tipoAjuste: aj.tipoAjuste,
-                  codigoItem: cod,
-                  descricaoItem: aj.descricaoItem || '-',
-                  dataExecucao: dataExecItem,
-                  quantidadeOriginal: aj.quantidadeOriginal,
-                  quantidadeAjustada: '0',
-                  valorOriginal: aj.valorOriginal,
-                  valorAjustado: '0',
-                  quantidadeAtual: itemNovo?.quantidade || null,
-                  valorAtual: itemNovo?.valorTotal || null,
-                  status: 'nao_corrigido',
-                  observacao: `Item ainda presente na conta`,
-                });
-              }
-            } else if (aj.tipoAjuste === 'ALTERAR_QUANTIDADE') {
-              if (!itemNovo) {
-                statusAjustes.push({
-                  tipoAjuste: aj.tipoAjuste,
-                  codigoItem: cod,
-                  descricaoItem: aj.descricaoItem || '-',
-                  dataExecucao: dataExecItem,
-                  quantidadeOriginal: aj.quantidadeOriginal,
-                  quantidadeAjustada: aj.quantidadeAjustada,
-                  valorOriginal: aj.valorOriginal,
-                  valorAjustado: aj.valorAjustado,
-                  quantidadeAtual: null,
-                  valorAtual: null,
-                  status: 'item_nao_encontrado',
-                  observacao: `Item não encontrado na reimportação`,
-                });
-              } else {
-                const qtdAtual = parseFloat(itemNovo.quantidade || '0');
-                const qtdAjustada = parseFloat(aj.quantidadeAjustada || '0');
-                const qtdOriginal = parseFloat(aj.quantidadeOriginal || '0');
-                if (Math.abs(qtdAtual - qtdAjustada) < 0.001) {
-                  statusAjustes.push({
-                    tipoAjuste: aj.tipoAjuste,
-                    codigoItem: cod,
-                    descricaoItem: aj.descricaoItem || '-',
-                    dataExecucao: dataExecItem,
-                    quantidadeOriginal: aj.quantidadeOriginal,
-                    quantidadeAjustada: aj.quantidadeAjustada,
-                    valorOriginal: aj.valorOriginal,
-                    valorAjustado: aj.valorAjustado,
-                    quantidadeAtual: itemNovo.quantidade,
-                    valorAtual: itemNovo.valorTotal,
-                    status: 'corrigido',
-                    observacao: `Quantidade corrigida: ${qtdOriginal} → ${qtdAtual}`,
-                  });
-                } else if (Math.abs(qtdAtual - qtdOriginal) > 0.001) {
-                  statusAjustes.push({
-                    tipoAjuste: aj.tipoAjuste,
-                    codigoItem: cod,
-                    descricaoItem: aj.descricaoItem || '-',
-                    dataExecucao: dataExecItem,
-                    quantidadeOriginal: aj.quantidadeOriginal,
-                    quantidadeAjustada: aj.quantidadeAjustada,
-                    valorOriginal: aj.valorOriginal,
-                    valorAjustado: aj.valorAjustado,
-                    quantidadeAtual: itemNovo.quantidade,
-                    valorAtual: itemNovo.valorTotal,
-                    status: 'parcialmente_corrigido',
-                    observacao: `Quantidade alterada para ${qtdAtual}, mas auditoria esperava ${qtdAjustada}`,
-                  });
-                } else {
-                  statusAjustes.push({
-                    tipoAjuste: aj.tipoAjuste,
-                    codigoItem: cod,
-                    descricaoItem: aj.descricaoItem || '-',
-                    dataExecucao: dataExecItem,
-                    quantidadeOriginal: aj.quantidadeOriginal,
-                    quantidadeAjustada: aj.quantidadeAjustada,
-                    valorOriginal: aj.valorOriginal,
-                    valorAjustado: aj.valorAjustado,
-                    quantidadeAtual: itemNovo.quantidade,
-                    valorAtual: itemNovo.valorTotal,
-                    status: 'nao_corrigido',
-                    observacao: `Quantidade permanece ${qtdAtual}, auditoria ajustou para ${qtdAjustada}`,
-                  });
-                }
-              }
-            } else if (aj.tipoAjuste === 'ALTERAR_VALOR') {
-              if (!itemNovo) {
-                statusAjustes.push({
-                  tipoAjuste: aj.tipoAjuste,
-                  codigoItem: cod,
-                  descricaoItem: aj.descricaoItem || '-',
-                  dataExecucao: dataExecItem,
-                  quantidadeOriginal: aj.quantidadeOriginal,
-                  quantidadeAjustada: aj.quantidadeAjustada,
-                  valorOriginal: aj.valorOriginal,
-                  valorAjustado: aj.valorAjustado,
-                  quantidadeAtual: null,
-                  valorAtual: null,
-                  status: 'item_nao_encontrado',
-                  observacao: `Item não encontrado na reimportação`,
-                });
-              } else {
-                const valAtual = parseFloat(itemNovo.valorTotal || '0');
-                const valAjustado = parseFloat(aj.valorAjustado || '0');
-                const valOriginal = parseFloat(aj.valorOriginal || '0');
-                if (Math.abs(valAtual - valAjustado) < 0.01) {
-                  statusAjustes.push({
-                    tipoAjuste: aj.tipoAjuste,
-                    codigoItem: cod,
-                    descricaoItem: aj.descricaoItem || '-',
-                    dataExecucao: dataExecItem,
-                    quantidadeOriginal: aj.quantidadeOriginal,
-                    quantidadeAjustada: aj.quantidadeAjustada,
-                    valorOriginal: aj.valorOriginal,
-                    valorAjustado: aj.valorAjustado,
-                    quantidadeAtual: itemNovo.quantidade,
-                    valorAtual: itemNovo.valorTotal,
-                    status: 'corrigido',
-                    observacao: `Valor corrigido: R$ ${valOriginal.toFixed(2)} → R$ ${valAtual.toFixed(2)}`,
-                  });
-                } else if (Math.abs(valAtual - valOriginal) > 0.01) {
-                  statusAjustes.push({
-                    tipoAjuste: aj.tipoAjuste,
-                    codigoItem: cod,
-                    descricaoItem: aj.descricaoItem || '-',
-                    dataExecucao: dataExecItem,
-                    quantidadeOriginal: aj.quantidadeOriginal,
-                    quantidadeAjustada: aj.quantidadeAjustada,
-                    valorOriginal: aj.valorOriginal,
-                    valorAjustado: aj.valorAjustado,
-                    quantidadeAtual: itemNovo.quantidade,
-                    valorAtual: itemNovo.valorTotal,
-                    status: 'parcialmente_corrigido',
-                    observacao: `Valor alterado para R$ ${valAtual.toFixed(2)}, mas auditoria esperava R$ ${valAjustado.toFixed(2)}`,
-                  });
-                } else {
-                  statusAjustes.push({
-                    tipoAjuste: aj.tipoAjuste,
-                    codigoItem: cod,
-                    descricaoItem: aj.descricaoItem || '-',
-                    dataExecucao: dataExecItem,
-                    quantidadeOriginal: aj.quantidadeOriginal,
-                    quantidadeAjustada: aj.quantidadeAjustada,
-                    valorOriginal: aj.valorOriginal,
-                    valorAjustado: aj.valorAjustado,
-                    quantidadeAtual: itemNovo.quantidade,
-                    valorAtual: itemNovo.valorTotal,
-                    status: 'nao_corrigido',
-                    observacao: `Valor permanece R$ ${valOriginal.toFixed(2)}, auditoria ajustou para R$ ${valAjustado.toFixed(2)}`,
-                  });
-                }
-              }
-            }
-          }
-
-          const totalAjustesCorrigidos = statusAjustes.filter(a => a.status === 'corrigido').length;
-          const totalAjustesParciais = statusAjustes.filter(a => a.status === 'parcialmente_corrigido').length;
-          const totalAjustesNaoCorrigidos = statusAjustes.filter(a => a.status === 'nao_corrigido' || a.status === 'item_nao_encontrado').length;
-
-          comparativo = {
-            hadPreviousData: true,
-            valorAnterior: valorTotalAnterior,
-            valorNovo: valorTotalConta,
-            diferencaValor: valorTotalConta - valorTotalAnterior,
-            totalItensAnterior,
-            totalItensNovo: totalInseridos,
-            itensAlterados: itensAlterados.slice(0, 50),
-            itensAdicionados,
-            itensRemovidos,
-            valorItensAdicionados,
-            valorItensRemovidos,
-            diferencaAlteracoes,
-            listaItensAdicionados: listaItensAdicionados.slice(0, 30),
-            listaItensRemovidos: listaItensRemovidos.slice(0, 30),
-            statusAjustesAuditoria: statusAjustes,
-            totalAjustesCorrigidos,
-            totalAjustesParciais,
-            totalAjustesNaoCorrigidos,
-          };
-
-          logger.info({
-            message: "Comparativo de reimportação gerado",
-            numeroConta: input.numeroConta,
-            valorAnterior: valorTotalAnterior,
-            valorNovo: valorTotalConta,
-            itensAlterados: itensAlterados.length,
-            itensAdicionados,
-            itensRemovidos,
-          });
-        }
-
-        // ============================================================
-        // ANÁLISE AUTOMÁTICA: Comparar com padrões após reimportação
-        // ============================================================
-        let analiseResultado: { totalConformes: number; totalDivergentes: number; scoreRisco: number } = {
-          totalConformes: 0,
-          totalDivergentes: 0,
-          scoreRisco: 0,
-        };
-
-        try {
-          logger.info({
-            message: "Executando análise automática pós-importação",
-            numeroConta: input.numeroConta,
-            estabelecimentoId: input.estabelecimentoId,
-          });
-
-          const resultadoComparacao = await compararContaComPadroes(
-            input.numeroConta,
-            input.estabelecimentoId
-          );
-
-          // Mapear divergências por codigoItem para atualizar statusAnalise de cada item
-          const divergenciasPorItem = new Map<string, any[]>();
-          const divergenciasGerais: any[] = []; // Divergências sem item (ITEM_FALTANTE, etc.)
-
-          for (const div of resultadoComparacao.divergencias) {
-            if (div.tipo === "ITEM_FALTANTE") {
-              divergenciasGerais.push(div);
-            } else if (div.codigoItem) {
-              if (!divergenciasPorItem.has(div.codigoItem)) {
-                divergenciasPorItem.set(div.codigoItem, []);
-              }
-              divergenciasPorItem.get(div.codigoItem)!.push(div);
-            } else {
-              divergenciasGerais.push(div);
-            }
-          }
-
-          // Buscar itens recém inseridos
-          const itensInseridos = await db.select({
-            id: contasConvenioItens.id,
-            codigoItem: contasConvenioItens.codigoItem,
-          }).from(contasConvenioItens).where(
-            and(
-              eq(contasConvenioItens.numeroConta, input.numeroConta),
-              eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-              eq(contasConvenioItens.origem, "BANCO_CLIENTE"),
-            )
-          );
-
-          let totalConformes = 0;
-          let totalDivergentes = 0;
-
-          // Atualizar cada item com suas divergências e status
-          for (const item of itensInseridos) {
-            const divs = item.codigoItem ? divergenciasPorItem.get(item.codigoItem) : null;
-            if (divs && divs.length > 0) {
-              totalDivergentes++;
-              await db.update(contasConvenioItens)
-                .set({
-                  statusAnalise: "divergente",
-                  divergencias: divs,
-                })
-                .where(eq(contasConvenioItens.id, item.id));
-            } else {
-              totalConformes++;
-              await db.update(contasConvenioItens)
-                .set({
-                  statusAnalise: "conforme",
-                  divergencias: null,
-                })
-                .where(eq(contasConvenioItens.id, item.id));
-            }
-          }
-
-          // Atualizar resumo da conta com score de risco e divergências gerais
-          const statusGeral = resultadoComparacao.statusGeral === "divergente" ? "divergente" : "conforme";
-          await db.update(contasConvenioResumo)
-            .set({
-              statusAnalise: statusGeral,
-              scoreRisco: resultadoComparacao.scoreRisco.score,
-              detalhesRisco: resultadoComparacao.scoreRisco,
-              divergenciasGerais: divergenciasGerais.length > 0 ? divergenciasGerais : null,
-            })
-            .where(
-              and(
-                eq(contasConvenioResumo.numeroConta, input.numeroConta),
-                eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
-                eq(contasConvenioResumo.origem, "BANCO_CLIENTE"),
-              )
-            );
-
-          analiseResultado = {
-            totalConformes,
-            totalDivergentes,
-            scoreRisco: resultadoComparacao.scoreRisco.score,
-          };
-
-          logger.info({
-            message: "Análise automática concluída",
-            numeroConta: input.numeroConta,
-            totalConformes,
-            totalDivergentes,
-            scoreRisco: resultadoComparacao.scoreRisco.score,
-            statusGeral,
-          });
-        } catch (analiseError) {
-          logger.warn({
-            message: "Análise automática falhou (não bloqueia importação)",
-            error: analiseError instanceof Error ? analiseError.message : String(analiseError),
-            numeroConta: input.numeroConta,
-          });
-        }
-
-        return {
-          sucesso: true,
-          mensagem: `Conta ${input.numeroConta} importada com ${totalInseridos} itens. Valor total: R$ ${valorTotalConta.toFixed(2)}${avisoFallback}`,
-          totalItens: totalInseridos,
-          valorTotal: valorTotalConta,
-          fonteDados,
-          comparativo,
-          analise: analiseResultado,
-          convenio: resumoConvenio ? String(resumoConvenio).trim() : null,
-          paciente: resumoPaciente ? String(resumoPaciente) : null,
-          conta: {
-            numeroConta: input.numeroConta,
-            convenio: resumoConvenio ? String(resumoConvenio).trim() : null,
-            paciente: resumoPaciente ? String(resumoPaciente) : null,
-            totalItens: totalInseridos,
-            valorTotal: valorTotalConta,
-          },
-        };
-      } catch (error) {
-        await connector.desconectar();
-        logger.error({
-          message: "Erro ao buscar conta no Warleine",
-          error: error instanceof Error ? error.message : String(error),
-          numeroConta: input.numeroConta,
-        });
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Erro ao buscar conta: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      }
+      // Busca é preview read-only. Materialização financeira ocorre somente na esteira, sob lock e versão.
+      const remote = await lerContaFabricaBanco(db, input.estabelecimentoId, input.numeroConta);
+      const collection = await prepararColecaoBanco(db, input.estabelecimentoId, input.numeroConta, remote.dados);
+      if (!collection.encontrada) return { sucesso: false, mensagem: "Conta não encontrada na origem hospitalar.", totalItens: 0, conta: null };
+      const h = collection.cabecalho;
+      const totalItens = collection.itens.length, valorTotal = Number(collection.valorTotal);
+      return { sucesso: true, mensagem: "Prévia somente leitura. Sincronize pela esteira para gravar uma versão financeira.", totalItens, valorTotal,
+        fonteDados: remote.fonteDados, configSource: remote.configSource, comparativo: null, analise: { totalConformes: 0, totalDivergentes: 0, scoreRisco: 0 },
+        convenio: h.convenioNome, paciente: h.nomePaciente, conta: { numeroConta: h.numeroContaHospital, convenio: h.convenioNome, paciente: h.nomePaciente, totalItens, valorTotal } };
     }),
-
-  // ============================================================
-  // LISTAR CONTAS (RESUMO)
-  // ============================================================
+  // LISTAR CONTAS (RESUMO): somente versões bancárias ativas.
   listarContas: protectedProcedure
     .input(z.object({
       estabelecimentoId: z.number().optional(),
@@ -1199,7 +111,7 @@ export const contasConvenioRouter = router({
       const page = input?.page ?? 1;
       const pageSize = input?.pageSize ?? 20;
 
-      const conditions: any[] = [];
+      const conditions: any[] = [filtroResumoBancoAtivo()];
 
       conditions.push(inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados));
       if (convenio) {
@@ -1254,7 +166,7 @@ export const contasConvenioRouter = router({
       // valores financeiros devem sempre ser recalculados a partir dos itens que
       // atendem exatamente aos filtros atuais.
       const buildItemConditions = () => {
-        const itemConditions: any[] = [inArray(contasConvenioItens.estabelecimentoId, hospitaisAutorizados)];
+        const itemConditions: any[] = [inArray(contasConvenioItens.estabelecimentoId, hospitaisAutorizados), filtroItemBancoAtivo()];
         if (convenio) {
           itemConditions.push(eq(contasConvenioItens.convenio, convenio));
         }
@@ -1338,6 +250,7 @@ export const contasConvenioRouter = router({
       }
 
       const contas = contasResumo.map((conta) => {
+        if (conta.origem === "BANCO_CLIENTE") return conta;
         if ((conta as any).arquivoHospitalId && Number(conta.valorTotal || 0) > 0) {
           return conta;
         }
@@ -1388,6 +301,7 @@ export const contasConvenioRouter = router({
           .from(contasConvenioItens)
           .where(and(
             ...itemConditions,
+            eq(contasConvenioItens.origem, "XML"),
             inArray(contasConvenioItens.numeroConta, contasNumerosNaPagina),
             sql`${contasConvenioItens.numeroLote} IS NOT NULL`,
             sql`${contasConvenioItens.numeroLote} <> ''`,
@@ -1482,6 +396,7 @@ export const contasConvenioRouter = router({
                 FROM contas_convenio_resumo
                 WHERE convenio = ${conta.convenio}
                   AND estabelecimentoId = ${conta.estabelecimentoId}
+                  AND ${filtroResumoBancoAtivo()}
                   AND valorTotal IS NOT NULL AND CAST(valorTotal AS DECIMAL(14,2)) > 0`
           );
           const row = (statsResult as any)[0]?.[0];
@@ -1540,6 +455,9 @@ export const contasConvenioRouter = router({
     .input(z.object({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
+      origem: z.enum(["XML", "BANCO_CLIENTE"]).optional(),
+      fabricaContaId: z.number().int().positive().optional(),
+      resumoId: z.number().int().positive().optional(),
       tipoItem: z.string().optional(),
       numeroLote: z.string().optional(),
       arquivoId: z.number().optional(),
@@ -1549,11 +467,16 @@ export const contasConvenioRouter = router({
       await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      const bank = input.origem === "XML" && !input.fabricaContaId && !input.resumoId ? null : await resolverSnapshotLeituraBanco(db, ctx.user, input);
+      if (bank && (input.arquivoId || (input.numeroLote && input.numeroLote !== bank.snapshot.numeroLote))) throw new TRPCError({ code: "CONFLICT", message: "Filtro não corresponde ao snapshot bancário vigente." });
+
 
       const conditions: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
       ];
       conditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
+      if (bank) conditions.push(...bank.itemConditions);
+      else if (input.origem) conditions.push(eq(contasConvenioItens.origem, input.origem));
 
       if (input.tipoItem) {
         conditions.push(eq(contasConvenioItens.tipoItem, input.tipoItem));
@@ -1579,6 +502,8 @@ export const contasConvenioRouter = router({
         eq(contasConvenioItens.numeroConta, input.numeroConta),
       ];
       resumoConditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
+      if (bank) resumoConditions.push(...bank.itemConditions);
+      else if (input.origem) resumoConditions.push(eq(contasConvenioItens.origem, input.origem));
       if (input.numeroLote) {
         resumoConditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
@@ -1701,6 +626,7 @@ export const contasConvenioRouter = router({
       }
 
       return {
+        snapshot: bank?.snapshot ?? null,
         items: allItems,
         resumoPorTipo: resumoPorTipoDb,
         resumoGeral: totalGeralDb[0] || { totalItens: 0, valorTotal: "0", totalDivergentes: 0, totalConformes: 0, totalPendentes: 0 },
@@ -1722,6 +648,7 @@ export const contasConvenioRouter = router({
       await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "excluir");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      await negarMutacaoBancoSemEscopo(db, input.numeroConta, input.estabelecimentoId);
 
       // Excluir itens
       await db.delete(contasConvenioItens).where(
@@ -1904,7 +831,7 @@ export const contasConvenioRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input?.estabelecimentoId ?? null, "visualizar");
-      const conditions: any[] = [inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados)];
+      const conditions: any[] = [inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados), filtroResumoBancoAtivo()];
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -1973,7 +900,7 @@ export const contasConvenioRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input?.estabelecimentoId ?? null, "visualizar");
-      const conditions: any[] = [inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados)];
+      const conditions: any[] = [inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados), filtroResumoBancoAtivo()];
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -2004,13 +931,14 @@ export const contasConvenioRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const [item] = await db
-        .select({ estabelecimentoId: contasConvenioItens.estabelecimentoId })
+        .select({ estabelecimentoId: contasConvenioItens.estabelecimentoId, origem: contasConvenioItens.origem, numeroLote: contasConvenioItens.numeroLote })
         .from(contasConvenioItens)
         .where(eq(contasConvenioItens.id, input.itemId))
         .limit(1);
       if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
       await exigirHospitalProprietario(ctx.user, item.estabelecimentoId, "editar");
 
+      if (item.origem === "BANCO_CLIENTE" && item.numeroLote?.startsWith("BANCO:v1:")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A revisão do snapshot bancário deve ocorrer na esteira, com versão vigente." });
       await db.update(contasConvenioItens)
         .set({ statusAnalise: input.statusAnalise })
         .where(eq(contasConvenioItens.id, input.itemId));
@@ -2025,6 +953,9 @@ export const contasConvenioRouter = router({
     .input(z.object({
       numeroConta: z.string().trim().min(1).max(100),
       estabelecimentoId: z.number().int().positive(),
+      origem: z.enum(["XML", "BANCO_CLIENTE"]).optional(),
+      fabricaContaId: z.number().int().positive().optional(),
+      resumoId: z.number().int().positive().optional(),
       contextoMedicoScope: z.object({
         estabelecimentoId: z.number().int().positive().optional(),
         convenioId: z.number().int().positive(),
@@ -2036,6 +967,9 @@ export const contasConvenioRouter = router({
     }).strict())
     .mutation(async ({ input, ctx }) => {
       await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
+      const banco = await getDb();
+      if (!banco) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      await negarMutacaoBancoSemEscopo(banco, input.numeroConta, input.estabelecimentoId);
       const { executarComparacaoESalvar } = await import("../services/comparadorPadroes");
       if (!input.contextoMedicoScope) {
         try {
@@ -2114,6 +1048,9 @@ export const contasConvenioRouter = router({
     .input(z.object({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
+      origem: z.enum(["XML", "BANCO_CLIENTE"]).optional(),
+      fabricaContaId: z.number().int().positive().optional(),
+      resumoId: z.number().int().positive().optional(),
       numeroLote: z.string().optional(),
       arquivoId: z.number().optional(),
     }))
@@ -2121,12 +1058,17 @@ export const contasConvenioRouter = router({
       await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      const bank = input.origem === "XML" && !input.fabricaContaId && !input.resumoId ? null : await resolverSnapshotLeituraBanco(db, ctx.user, input);
+      if (bank && (input.arquivoId || (input.numeroLote && input.numeroLote !== bank.snapshot.numeroLote))) throw new TRPCError({ code: "CONFLICT", message: "Filtro não corresponde ao snapshot bancário vigente." });
+
 
       const itemConds: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
         eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
         sql`divergencias IS NOT NULL AND JSON_LENGTH(divergencias) > 0`,
       ];
+      if (bank) itemConds.push(...bank.itemConditions);
+      else if (input.origem) itemConds.push(eq(contasConvenioItens.origem, input.origem));
       if (input.numeroLote) {
         itemConds.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
@@ -2155,6 +1097,8 @@ export const contasConvenioRouter = router({
         eq(contasConvenioResumo.numeroConta, input.numeroConta),
         eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
       ];
+      if (bank) resumoConds.push(...bank.resumoConditions);
+      else if (input.origem) resumoConds.push(eq(contasConvenioResumo.origem, input.origem));
       if (input.numeroLote) {
         resumoConds.push(eq(contasConvenioResumo.numeroLote, input.numeroLote));
       }

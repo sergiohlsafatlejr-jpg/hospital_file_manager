@@ -1,7 +1,5 @@
 import { z } from "zod";
 import pdfParse from "pdf-parse";
-import path from "path";
-import fs from "fs/promises";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
@@ -20,6 +18,8 @@ import { chaveContaPagar, contasPagarImportSchema, normalizarNome } from "../../
 import { SAFATLE_ESTABELECIMENTO_ID } from "../../shared/const";
 import { dataCivilFinanceiraSchema, dataCivilParaBanco, hojeCivilBrasil, somarDiasCivis, valorDataCivil } from "../../shared/financeiroCivilDate";
 import { clienteDaUnidade, exigirClienteDaEmpresa, exigirEmpresaDaUnidade, exigirRecebiveisDaUnidade, exigirTransacoesDaUnidade, exigirUnidadeFinanceira, recebivelDaUnidade, transacaoDaUnidade } from "../financeiroEscopo";
+import { carregarNotaFiscalBase64, decodificarPdfNF, NF_MAX_BASE64, salvarNotaFiscalDuravel, type NotaFiscalScope } from "../financeiroNotaFiscal";
+import { codigoBoletoConfirmado, emitirBoletoReservado, fingerprintBoleto, prepararClaimBoleto } from "../financeiroBoleto";
 
 // Para filtrar DATE, compare DATE com DATE: usar Date (meio-dia) excluiria o dia inicial.
 const limiteDiaCivil = (iso: string) => sql`DATE(${iso})`;
@@ -53,63 +53,20 @@ async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) 
   return banco;
 }
 
-async function salvarNotaFiscalRecebivel(recebivelId: number, buffer: Buffer): Promise<string> {
-  const fileName = `nf_${recebivelId}_${Date.now()}.pdf`;
-  const dirPath = path.join(process.cwd(), "uploads");
-  await fs.mkdir(dirPath, { recursive: true });
-  await fs.writeFile(path.join(dirPath, fileName), buffer);
+const notaFiscalIO = { put: storagePut, get: storageGet, fetch: (...args: Parameters<typeof fetch>) => fetch(...args) };
+const carregarNotaFiscalRecebivelBase64 = (scope: NotaFiscalScope, reference: string) => carregarNotaFiscalBase64(scope, reference, notaFiscalIO);
 
-  if (process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY) {
-    try {
-      const storageKey = `nfs/${fileName}`;
-      await storagePut(storageKey, buffer, "application/pdf");
-      return storageKey;
-    } catch (err) {
-      console.error("[Financeiro] Falha ao persistir NF no storage durável, mantendo cópia local:", err);
-    }
-  }
-  return fileName;
-}
-
-async function carregarNotaFiscalRecebivelBase64(notaFiscalKey: string): Promise<string> {
-  const safeFileName = path.basename(notaFiscalKey);
-  const localPath = path.join(process.cwd(), "uploads", safeFileName);
-  try {
-    const nfBuffer = await fs.readFile(localPath);
-    return nfBuffer.toString("base64");
-  } catch {
-    // Tenta recuperar do storage durável caso o container tenha reiniciado
-  }
-
-  if (process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY) {
-    const candidateKeys = Array.from(new Set([
-      notaFiscalKey,
-      `nfs/${safeFileName}`,
-    ]));
-    for (const candidateKey of candidateKeys) {
-      try {
-        const { url } = await storageGet(candidateKey);
-        const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-        if (response.ok) {
-          const arrayBuf = await response.arrayBuffer();
-          const nfBuffer = Buffer.from(arrayBuf);
-          if (nfBuffer.length > 0) {
-            const dirPath = path.join(process.cwd(), "uploads");
-            await fs.mkdir(dirPath, { recursive: true }).catch(() => {});
-            await fs.writeFile(localPath, nfBuffer).catch(() => {});
-            return nfBuffer.toString("base64");
-          }
-        }
-      } catch {
-        // Tenta próxima chave candidata
-      }
-    }
-  }
-
-  throw new TRPCError({
-    code: "PRECONDITION_FAILED",
-    message: "O arquivo PDF da Nota Fiscal vinculada não foi encontrado no servidor. Clique em '📄 Alterar NF' para anexar o PDF da Nota Fiscal novamente antes de enviar.",
-  });
+/** Ordem de locks: empresa -> recebível. Revalida ownership e permissão dentro
+ * da transação, sem segurar locks durante storage/Inter/SMTP. */
+async function bloquearRecebivelFinanceiro(tx: any, scope: NotaFiscalScope, userId: number) {
+  const [empresa] = await tx.select({ id: finEmpresas.id }).from(finEmpresas).where(and(
+    eq(finEmpresas.id, scope.empresaId), eq(finEmpresas.estabelecimentoId, scope.estabelecimentoId)
+  )).for("update");
+  if (!empresa) throw new TRPCError({ code: "FORBIDDEN", message: "Empresa fora do escopo financeiro" });
+  await exigirUnidadeFinanceira(userId, scope.estabelecimentoId, "editar");
+  const [row] = await tx.select().from(finRecebiveis).where(and(eq(finRecebiveis.id, scope.recebivelId), eq(finRecebiveis.empresaId, scope.empresaId))).for("update");
+  if (!row) throw new TRPCError({ code: "CONFLICT", message: "Recebível alterado; atualize a lista" });
+  return row;
 }
 
 // ============================================================
@@ -708,7 +665,14 @@ const recebiveisRouter = router({
           .offset((p.page - 1) * p.limit),
         db.select({ count: sql<number>`count(*)` }).from(finRecebiveis).where(where),
       ]);
-      return { items, total: countResult.count, page: p.page, limit: p.limit };
+      return { items: items.map(item => {
+        let boletoStatus: "none" | "created" | "reconciliation" = item.boletoSolicitacaoId ? "created" : "none";
+        let codigo = item.boletoSolicitacaoId;
+        try {
+          if (codigo) codigo = codigoBoletoConfirmado(codigo);
+        } catch { codigo = null; boletoStatus = "reconciliation"; }
+        return { ...item, boletoSolicitacaoId: codigo, boletoStatus };
+      }), total: countResult.count, page: p.page, limit: p.limit };
     }),
   tiposServicoDistintos: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
@@ -765,20 +729,35 @@ const recebiveisRouter = router({
       const { id, estabelecimentoId, ...data } = input;
       const valorNormalizado = normalizarValorFinanceiro(data.valor);
       const recebidoStatus = data.recebido ?? (data.dataRecebimento ? "sim" : "nao");
-      await db.update(finRecebiveis).set({
-        empresaId: data.empresaId, clienteId: data.clienteId || null, tipoId: data.tipoId || null,
-        bancoId: data.bancoId || null, descricao: data.descricao, valor: valorNormalizado,
-        dataVencimento: dataCivilParaBanco(data.dataVencimento), dataRecebimento: data.dataRecebimento ? dataCivilParaBanco(data.dataRecebimento) : null,
-        recebido: recebidoStatus, tipoServico: data.tipoServico || null, descricaoServico: data.descricaoServico || null,
-        observacoes: data.observacoes || null,
-      }).where(and(eq(finRecebiveis.id, id), recebivelDaUnidade(estabelecimentoId)));
+      await db.transaction(async tx => {
+        const [original] = await tx.select().from(finRecebiveis).where(and(eq(finRecebiveis.id, id), recebivelDaUnidade(estabelecimentoId))).for("update");
+        if (!original) throw new TRPCError({ code: "FORBIDDEN" });
+        if ((original.notaFiscalKey || original.boletoSolicitacaoId) && original.empresaId !== data.empresaId) {
+          throw new TRPCError({ code: "CONFLICT", message: "Documento/cobrança vinculado: transferência de empresa exige reconciliação." });
+        }
+        if (original.boletoSolicitacaoId && (original.valor !== valorNormalizado || valorDataCivil(original.dataVencimento) !== data.dataVencimento || original.bancoId !== (data.bancoId || null) || original.clienteId !== (data.clienteId || null))) {
+          throw new TRPCError({ code: "CONFLICT", message: "Tentativa bancária vinculada: não altere banco, pagador, valor ou vencimento sem reconciliação." });
+        }
+        await tx.update(finRecebiveis).set({
+          empresaId: data.empresaId, clienteId: data.clienteId || null, tipoId: data.tipoId || null,
+          bancoId: data.bancoId || null, descricao: data.descricao, valor: valorNormalizado,
+          dataVencimento: dataCivilParaBanco(data.dataVencimento), dataRecebimento: data.dataRecebimento ? dataCivilParaBanco(data.dataRecebimento) : null,
+          recebido: recebidoStatus, tipoServico: data.tipoServico || null, descricaoServico: data.descricaoServico || null,
+          observacoes: data.observacoes || null,
+        }).where(and(eq(finRecebiveis.id, id), recebivelDaUnidade(estabelecimentoId)));
+      });
       return { success: true };
     }),
   excluir: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
     await exigirRecebiveisDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.delete(finRecebiveis).where(and(eq(finRecebiveis.id, input.id), recebivelDaUnidade(input.estabelecimentoId)));
+    await db.transaction(async tx => {
+      const rows = await tx.select().from(finRecebiveis).where(and(inArray(finRecebiveis.id, [input.id]), recebivelDaUnidade(input.estabelecimentoId))).for("update");
+      if (rows.length !== [input.id].length) throw new TRPCError({ code: "FORBIDDEN" });
+      if (rows.some(row => row.boletoSolicitacaoId)) throw new TRPCError({ code: "CONFLICT", message: "Cobrança/tentativa vinculada: exclusão bloqueada até reconciliação." });
+      await tx.delete(finRecebiveis).where(and(inArray(finRecebiveis.id, [input.id]), recebivelDaUnidade(input.estabelecimentoId)));
+    });
     return { success: true };
   }),
   marcarRecebido: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), dataRecebimento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input, ctx }) => {
@@ -828,7 +807,12 @@ const recebiveisRouter = router({
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
     await exigirRecebiveisDaUnidade(input.ids, input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.delete(finRecebiveis).where(and(inArray(finRecebiveis.id, input.ids), recebivelDaUnidade(input.estabelecimentoId)));
+    await db.transaction(async tx => {
+      const rows = await tx.select().from(finRecebiveis).where(and(inArray(finRecebiveis.id, input.ids), recebivelDaUnidade(input.estabelecimentoId))).for("update");
+      if (rows.length !== input.ids.length) throw new TRPCError({ code: "FORBIDDEN" });
+      if (rows.some(row => row.boletoSolicitacaoId)) throw new TRPCError({ code: "CONFLICT", message: "Cobrança/tentativa vinculada: exclusão bloqueada até reconciliação." });
+      await tx.delete(finRecebiveis).where(and(inArray(finRecebiveis.id, input.ids), recebivelDaUnidade(input.estabelecimentoId)));
+    });
     return { success: true };
   }),
   dashboard: protectedProcedure
@@ -1180,7 +1164,8 @@ const recebiveisRouter = router({
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel) throw new TRPCError({ code: "NOT_FOUND", message: "Recebível não encontrado" });
-      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!recebivel.empresaId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem empresa vinculada" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId!)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
 
@@ -1194,66 +1179,57 @@ const recebiveisRouter = router({
       if (!bancoEmissorId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Selecione um banco do estabelecimento com API Banco Inter configurada antes de gerar o boleto." });
       await exigirBancoDaUnidade(bancoEmissorId, empresa.estabelecimentoId);
 
-      const dataVenc = new Date(recebivel.dataVencimento);
-      const dataVencimentoStr = dataVenc.toISOString().split("T")[0];
-
-      // Remover caracteres não numéricos do CEP
-      const cleanCep = input.pagador.cep.replace(/\D/g, "");
-
+      const scope = { estabelecimentoId: empresa.estabelecimentoId, empresaId: recebivel.empresaId!, recebivelId: recebivel.id };
       const interInput = {
         bancoId: bancoEmissorId,
-        seuNumero: `REC-${recebivel.id}-${Date.now()}`.substring(0, 15),
-        valorNominal: parseFloat(recebivel.valor),
-        dataVencimento: dataVencimentoStr,
+        valorNominal: Number(recebivel.valor),
+        dataVencimento: valorDataCivil(recebivel.dataVencimento),
         numDiasAgenda: 30,
-        pagador: { ...input.pagador, cep: cleanCep },
+        pagador: { ...input.pagador, cep: input.pagador.cep.replace(/\D/g, "") },
         formasRecebimento: ["BOLETO", "PIX"] as Array<"BOLETO" | "PIX">
       };
-
-      const result = await emitirBoleto(interInput, bancoEmissorId);
-      if (!result.configured) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: result.message || "A API do Banco Inter não está totalmente configurada para o banco selecionado."
-        });
+      if (!Number.isFinite(interInput.valorNominal) || interInput.valorNominal < 2.5 || interInput.valorNominal > 99999999.99 || !interInput.dataVencimento) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Valor/vencimento inválido para emissão" });
       }
-      if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
-      if (!result.codigoSolicitacao) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "O Banco Inter não retornou o código de solicitação do boleto." });
-      }
-
-      await db.update(finRecebiveis).set({
-        bancoId: bancoEmissorId,
-        boletoSolicitacaoId: result.codigoSolicitacao,
-        boletoLinhaDigitavel: result.boleto?.linhaDigitavel || null,
-        boletoPixCopiaCola: result.pix?.pixCopiaECola || null,
-        emailEnviado: "nao",
-      }).where(eq(finRecebiveis.id, input.recebivelId));
-
-      // Se houver email, tenta baixar e disparar o anexo
-      if (input.pagador.email) {
-        try {
-          const pdfResult = await downloadBoletoPdf(result.codigoSolicitacao, bancoEmissorId);
-          if (pdfResult && pdfResult.pdf) {
-            let base64Nf: string | undefined = undefined;
-            if (recebivel.notaFiscalKey) {
-              try {
-                base64Nf = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
-              } catch (e) {
-                console.error("Erro nf:", e);
-              }
-            }
-            const success = await enviarBoletoPorEmail(input.pagador.email, pdfResult.pdf, result.codigoSolicitacao, recebivel.valor, base64Nf);
-            if (success) {
-              await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
-            }
-          }
-        } catch (err) {
-          console.error("Falha ao enviar email do boleto gerado:", err);
+      const fingerprint = fingerprintBoleto({ scope, clienteId: recebivel.clienteId, recebido: recebivel.recebido, ...interInput });
+      const assertUnchanged = (row: any) => {
+        if (row.valor !== recebivel.valor || valorDataCivil(row.dataVencimento) !== interInput.dataVencimento || row.bancoId !== recebivel.bancoId || row.clienteId !== recebivel.clienteId || row.recebido !== recebivel.recebido) {
+          throw new TRPCError({ code: "CONFLICT", message: "Cobrança alterada; atualize a lista antes da reconciliação" });
         }
-      }
+      };
+      return emitirBoletoReservado({
+        claim: async hash => db.transaction(async tx => {
+          const row = await bloquearRecebivelFinanceiro(tx, scope, ctx.user.id);
+          assertUnchanged(row);
+          const claim = prepararClaimBoleto(row.boletoSolicitacaoId, hash);
+          if (!claim.replay) {
+            const [changed] = await tx.update(finRecebiveis).set({ bancoId: bancoEmissorId, boletoSolicitacaoId: claim.reserved, emailEnviado: "nao" })
+              .where(and(eq(finRecebiveis.id, row.id), eq(finRecebiveis.empresaId, scope.empresaId), isNull(finRecebiveis.boletoSolicitacaoId)));
+            if (changed.affectedRows !== 1) throw new TRPCError({ code: "CONFLICT", message: "Reserva concorrente; solicite reconciliação" });
+          }
+          return claim;
+        }),
+        complete: async (reserved, created, result) => db.transaction(async tx => {
+          const row = await bloquearRecebivelFinanceiro(tx, scope, ctx.user.id);
+          if (row.boletoSolicitacaoId !== reserved || row.bancoId !== bancoEmissorId || row.valor !== recebivel.valor || valorDataCivil(row.dataVencimento) !== interInput.dataVencimento || row.clienteId !== recebivel.clienteId || row.recebido !== recebivel.recebido) {
+            throw new TRPCError({ code: "CONFLICT", message: "Tentativa alterada; solicite reconciliação" });
+          }
+          const [changed] = await tx.update(finRecebiveis).set({
+            boletoSolicitacaoId: created,
+            boletoLinhaDigitavel: typeof result.boleto?.linhaDigitavel === "string" ? result.boleto.linhaDigitavel.slice(0, 100) : null,
+            boletoPixCopiaCola: typeof result.pix?.pixCopiaECola === "string" ? result.pix.pixCopiaECola : null,
+            emailEnviado: "nao",
+          }).where(and(eq(finRecebiveis.id, row.id), eq(finRecebiveis.empresaId, scope.empresaId), eq(finRecebiveis.boletoSolicitacaoId, reserved)));
+          if (changed.affectedRows !== 1) throw new TRPCError({ code: "CONFLICT", message: "Protocolo não confirmado; solicite reconciliação" });
+        }),
+        uncertain: async (reserved, uncertain) => {
+          // CAS exato: nunca substitui protocolo confirmado ou outra tentativa.
+          await db.update(finRecebiveis).set({ boletoSolicitacaoId: uncertain })
+            .where(and(eq(finRecebiveis.id, scope.recebivelId), eq(finRecebiveis.empresaId, scope.empresaId), eq(finRecebiveis.boletoSolicitacaoId, reserved)));
+        },
+      }, fingerprint, seuNumero => emitirBoleto({ ...interInput, dataVencimento: interInput.dataVencimento!, seuNumero }, bancoEmissorId!));
+      // Não consultar NF/storage, baixar PDF ou executar SMTP nesta mutation.
 
-      return { success: true, codigoSolicitacao: result.codigoSolicitacao };
     }),
 
   baixarBoleto: protectedProcedure
@@ -1262,14 +1238,15 @@ const recebiveisRouter = router({
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.boletoSolicitacaoId) throw new TRPCError({ code: "NOT_FOUND", message: "Boleto não encontrado para o recebível" });
-      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!recebivel.empresaId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem empresa vinculada" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId!)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "visualizar");
       if (!recebivel.bancoId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Recebível sem banco vinculado" });
       await exigirBancoDaUnidade(recebivel.bancoId, empresa.estabelecimentoId);
       
-      const result = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId);
-      if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+      const result = await downloadBoletoPdf(codigoBoletoConfirmado(recebivel.boletoSolicitacaoId), recebivel.bancoId);
+      if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: "Não foi possível recuperar o boleto. Confira o protocolo ou solicite reconciliação." });
       return result;
     }),
 
@@ -1279,46 +1256,64 @@ const recebiveisRouter = router({
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.boletoSolicitacaoId) throw new TRPCError({ code: "NOT_FOUND", message: "Boleto não encontrado para o recebível" });
-      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!recebivel.empresaId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem empresa vinculada" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId!)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
       if (!recebivel.bancoId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Recebível sem banco vinculado" });
       await exigirBancoDaUnidade(recebivel.bancoId, empresa.estabelecimentoId);
       
-      const pdfResult = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId);
+      const codigoSolicitacao = codigoBoletoConfirmado(recebivel.boletoSolicitacaoId);
+      if (!recebivel.notaFiscalKey) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Anexe e confira a NF antes de enviar boleto + NF." });
+      const base64Nf = await carregarNotaFiscalRecebivelBase64({ estabelecimentoId: empresa.estabelecimentoId, empresaId: recebivel.empresaId!, recebivelId: recebivel.id }, recebivel.notaFiscalKey);
+      const pdfResult = await downloadBoletoPdf(codigoSolicitacao, recebivel.bancoId);
       if (!pdfResult || !pdfResult.pdf) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar o PDF do Banco Inter" });
       
-      let base64Nf: string | undefined = undefined;
-      if (recebivel.notaFiscalKey) {
-        base64Nf = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
-      }
-
-      const enviado = await enviarBoletoPorEmail(input.email, pdfResult.pdf, recebivel.boletoSolicitacaoId, recebivel.valor, base64Nf);
+      const enviado = await enviarBoletoPorEmail(input.email, pdfResult.pdf, codigoSolicitacao, recebivel.valor, base64Nf);
       if (!enviado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao enviar o e-mail via provedor. Verifique as credenciais SMTP." });
       
-      await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
+      const [delivery] = await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(and(eq(finRecebiveis.id, input.recebivelId), eq(finRecebiveis.empresaId, recebivel.empresaId!), eq(finRecebiveis.notaFiscalKey, recebivel.notaFiscalKey!), recebivel.boletoSolicitacaoId === null ? isNull(finRecebiveis.boletoSolicitacaoId) : eq(finRecebiveis.boletoSolicitacaoId, recebivel.boletoSolicitacaoId)));
+      if (delivery.affectedRows !== 1) throw new TRPCError({ code: "CONFLICT", message: "E-mail enviado da versão anterior, mas NF/cobrança mudou. Confira a versão atual antes de nova entrega." });
       return { success: true };
     }),
 
   anexarNotaFiscal: protectedProcedure
     .input(z.object({
       recebivelId: z.number().int().positive(),
-      base64File: z.string(),
-      fileName: z.string()
+      base64File: z.string().max(NF_MAX_BASE64),
+      fileName: z.string().max(255),
+      expectedKey: z.string().max(255).nullable(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel) throw new TRPCError({ code: "NOT_FOUND", message: "Recebível não encontrado" });
-      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!recebivel.empresaId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem empresa vinculada" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId!)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
 
-      const buffer = Buffer.from(input.base64File, "base64");
-      const key = await salvarNotaFiscalRecebivel(input.recebivelId, buffer);
-      
-      await db.update(finRecebiveis).set({ notaFiscalKey: key }).where(eq(finRecebiveis.id, input.recebivelId));
+      if (recebivel.notaFiscalKey !== input.expectedKey) throw new TRPCError({ code: "CONFLICT", message: "NF alterada; atualize a lista antes de substituir." });
+      const scope = { estabelecimentoId: empresa.estabelecimentoId, empresaId: recebivel.empresaId!, recebivelId: recebivel.id };
+      const buffer = decodificarPdfNF(input.base64File);
+      const key = await salvarNotaFiscalDuravel(scope, buffer, notaFiscalIO);
+      try {
+        await db.transaction(async tx => {
+          const row = await bloquearRecebivelFinanceiro(tx, scope, ctx.user.id);
+          if (row.notaFiscalKey !== input.expectedKey) throw new TRPCError({ code: "CONFLICT", message: "Outra NF foi associada; atualize a lista. Seu upload não substituiu a versão atual." });
+          const [changed] = await tx.update(finRecebiveis).set({ notaFiscalKey: key, emailEnviado: "nao" })
+            .where(and(eq(finRecebiveis.id, scope.recebivelId), eq(finRecebiveis.empresaId, scope.empresaId), input.expectedKey === null ? isNull(finRecebiveis.notaFiscalKey) : eq(finRecebiveis.notaFiscalKey, input.expectedKey)));
+          if (changed.affectedRows !== 1) throw new TRPCError({ code: "CONFLICT", message: "NF alterada; atualize a lista" });
+        });
+      } catch (err) {
+        // Objeto órfão CIFRADO é aceitável no rollback; não logar referência,
+        // digest, IDs ou conteúdo. Retenção/limpeza requer procedimento autorizado.
+        console.warn("[Financeiro] NF cifrada persistida sem associação; requer revisão de retenção.");
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NF não associada. Atualize a lista antes de tentar novamente." });
+      }
       return { success: true, key };
+
     }),
 
   enviarEmailNF: protectedProcedure
@@ -1327,16 +1322,22 @@ const recebiveisRouter = router({
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.notaFiscalKey) throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma Nota Fiscal anexada para enviar." });
-      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!recebivel.empresaId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem empresa vinculada" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId!)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
       
-      const base64Nf = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
+      if (recebivel.boletoSolicitacaoId) {
+        codigoBoletoConfirmado(recebivel.boletoSolicitacaoId);
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cobrança vinculada: use a entrega explícita de boleto + NF." });
+      }
+      const base64Nf = await carregarNotaFiscalRecebivelBase64({ estabelecimentoId: empresa.estabelecimentoId, empresaId: recebivel.empresaId!, recebivelId: recebivel.id }, recebivel.notaFiscalKey);
 
       const enviado = await enviarNotaFiscalPorEmail(input.email, base64Nf, recebivel.valor);
       if (!enviado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao enviar o e-mail via SMTP." });
       
-      await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
+      const [delivery] = await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(and(eq(finRecebiveis.id, input.recebivelId), eq(finRecebiveis.empresaId, recebivel.empresaId!), eq(finRecebiveis.notaFiscalKey, recebivel.notaFiscalKey!), recebivel.boletoSolicitacaoId === null ? isNull(finRecebiveis.boletoSolicitacaoId) : eq(finRecebiveis.boletoSolicitacaoId, recebivel.boletoSolicitacaoId)));
+      if (delivery.affectedRows !== 1) throw new TRPCError({ code: "CONFLICT", message: "E-mail enviado da versão anterior, mas NF/cobrança mudou. Confira a versão atual antes de nova entrega." });
       return { success: true };
     }),
 
@@ -1346,12 +1347,13 @@ const recebiveisRouter = router({
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.notaFiscalKey) throw new TRPCError({ code: "NOT_FOUND", message: "Nota Fiscal não encontrada" });
-      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!recebivel.empresaId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem empresa vinculada" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId!)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "visualizar");
 
-      const safeFileName = path.basename(recebivel.notaFiscalKey);
-      const base64 = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
+      const safeFileName = `nota-fiscal-${recebivel.id}.pdf`;
+      const base64 = await carregarNotaFiscalRecebivelBase64({ estabelecimentoId: empresa.estabelecimentoId, empresaId: recebivel.empresaId!, recebivelId: recebivel.id }, recebivel.notaFiscalKey);
       return { base64, fileName: safeFileName };
     }),
 });
@@ -2239,14 +2241,16 @@ const bancoInterRouter = router({
     }))
     .mutation(async ({ input }) => {
       await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
-      return emitirBoleto(input, input.bancoId);
+      // Não existe chave durável de tentativa para boleto avulso neste schema.
+      // Não criar reserva em memória nem liberar retry financeiro inseguro.
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Emissão avulsa bloqueada: crie um recebível e emita por Contas a Receber, com reserva durável. Habilitar emissão avulsa exige estrutura específica previamente autorizada." });
     }),
 
   consultarBoleto: adminProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(), codigoSolicitacao: z.string() }))
     .query(async ({ input }) => {
       await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
-      return consultarBoleto(input.codigoSolicitacao, input.bancoId);
+      return consultarBoleto(codigoBoletoConfirmado(input.codigoSolicitacao), input.bancoId);
     }),
 
   listarBoletos: adminProcedure
@@ -2267,7 +2271,7 @@ const bancoInterRouter = router({
     .input(z.object({ estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(), codigoSolicitacao: z.string() }))
     .mutation(async ({ input }) => {
       await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
-      return downloadBoletoPdf(input.codigoSolicitacao, input.bancoId);
+      return downloadBoletoPdf(codigoBoletoConfirmado(input.codigoSolicitacao), input.bancoId);
     }),
 
   cancelarBoleto: adminProcedure
@@ -2278,7 +2282,7 @@ const bancoInterRouter = router({
     }))
     .mutation(async ({ input }) => {
       await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
-      return cancelarBoleto(input.codigoSolicitacao, input.motivoCancelamento, input.bancoId);
+      return cancelarBoleto(codigoBoletoConfirmado(input.codigoSolicitacao), input.motivoCancelamento, input.bancoId);
     }),
 
   sumarioBoletos: adminProcedure

@@ -1,5 +1,6 @@
 import mysql from "mysql2/promise";
 import { logger } from "../_core/logger";
+import { compilePositionalQuery, compileReadOnlyAccountQuery } from "./sqlQuerySafety";
 
 export interface MysqlConnectorConfig {
   host: string;
@@ -26,70 +27,72 @@ export class MysqlConnector {
         database: this.config.database,
         user: this.config.user,
         password: this.config.password,
-        ssl: this.config.ssl ? { rejectUnauthorized: false } : undefined,
+        // Retain configured CA/client material, but never disable verification.
+        ssl: this.config.ssl
+          ? { ...(typeof this.config.ssl === "object" ? this.config.ssl : {}), rejectUnauthorized: true }
+          : undefined,
+        multipleStatements: false,
         connectTimeout: 10000,
       });
-
-      logger.info({
-        message: `Conexão MySQL estabelecida com sucesso`,
-        host: this.config.host,
-        database: this.config.database,
-      });
-
+      logger.info({ message: "Conexão MySQL estabelecida com sucesso" });
       return true;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error({
-        message: `Erro ao conectar ao MySQL`,
-        error: msg,
-        host: this.config.host,
-      });
+    } catch {
+      // Driver messages can contain credentials, SQL or data. Do not forward them.
+      logger.error({ message: "Erro ao conectar ao MySQL" });
       return false;
     }
   }
 
   async desconectar(): Promise<void> {
-    if (this.connection) {
-      await this.connection.end();
-      this.connection = null;
-    }
-  }
-
-  private processarQueryEParams(query: string, params?: any[]): string {
-    if (!params || params.length === 0) return query;
-    let processedQuery = query;
-    for (let index = params.length - 1; index >= 0; index--) {
-      const param = params[index];
-      const placeholder = `$${index + 1}`;
-      if (processedQuery.includes(placeholder)) {
-        const valorFormatado =
-          param === null || param === undefined
-            ? "NULL"
-            : `'${String(param).replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
-        processedQuery = processedQuery.replace(
-          new RegExp(`\\$${index + 1}\\b`, "g"),
-          valorFormatado
-        );
+    const connection = this.connection;
+    this.connection = null;
+    if (connection) {
+      try {
+        await connection.end();
+      } catch {
+        logger.error({ message: "Erro ao desconectar do MySQL" });
+        throw new Error("Falha ao desconectar do MySQL.");
       }
     }
-    return processedQuery;
   }
 
-  async executarQuery(query: string, params?: any[]): Promise<any[]> {
-    if (!this.connection) {
-      throw new Error("Conexão não estabelecida");
-    }
-
+  /** Use a dedicated connector, without a pre-existing legacy transaction. */
+  async executarQuerySomenteLeitura(query: string, params: unknown[]): Promise<any[]> {
+    const compiled = compileReadOnlyAccountQuery(query, params, "mysql");
+    if (!this.connection) throw new Error("Conexão não estabelecida");
+    const connection = this.connection;
     try {
-      const processedQuery = this.processarQueryEParams(query, params);
-      const [rows] = await this.connection.query(processedQuery);
+      await connection.query("START TRANSACTION READ ONLY");
+      const [rows] = await connection.execute(compiled.sql, compiled.values);
       return Array.isArray(rows) ? rows : [rows];
-    } catch (error) {
-      logger.error({
-        message: "Erro ao executar query no MySQL",
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
+    } catch {
+      logger.error({ message: "Falha na consulta MySQL somente leitura" });
+      throw new Error("Falha ao executar consulta MySQL somente leitura.");
+    } finally {
+      try {
+        await connection.rollback();
+      } catch {
+        this.connection = null;
+        connection.destroy();
+        logger.error({ message: "Falha ao encerrar transação MySQL somente leitura" });
+        throw new Error("Falha ao encerrar consulta MySQL somente leitura.");
+      }
+    }
+  }
+
+  async executarQuery(query: string, params: unknown[] = []): Promise<any[]> {
+    if (!this.connection) throw new Error("Conexão não estabelecida");
+    // Validate before reaching the transport. A bind without a value fails closed.
+    const compiled = compilePositionalQuery(query, params, "mysql");
+    try {
+      // Legacy parameterless consumers may issue statements unsupported by prepare.
+      const [rows] = compiled.values.length
+        ? await this.connection.execute(compiled.sql, compiled.values)
+        : await this.connection.query(compiled.sql);
+      return Array.isArray(rows) ? rows : [rows];
+    } catch {
+      logger.error({ message: "Erro ao executar query no MySQL" });
+      throw new Error("Falha ao executar consulta no MySQL.");
     }
   }
 }

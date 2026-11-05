@@ -1,5 +1,6 @@
 import sql from "mssql";
 import { logger } from "../_core/logger";
+import { assertReadOnlyAccountQuery, compilePositionalQuery } from "./sqlQuerySafety";
 
 export interface SqlServerConnectorConfig {
   host: string;
@@ -26,81 +27,62 @@ export class SqlServerConnector {
         database: this.config.database,
         server: this.config.host,
         port: this.config.port,
-        pool: {
-          max: 10,
-          min: 0,
-          idleTimeoutMillis: 30000
-        },
+        pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
         options: {
-          encrypt: this.config.ssl || false, // Use true para Azure SQL
-          trustServerCertificate: true, // Para instâncias locais e de teste
+          encrypt: this.config.ssl || false,
+          trustServerCertificate: false,
           connectTimeout: 10000,
-        }
+        },
       });
-
       await this.pool.connect();
-
-      logger.info({
-        message: `Conexão SQL Server estabelecida com sucesso`,
-        host: this.config.host,
-        database: this.config.database,
-      });
-
+      logger.info({ message: "Conexão SQL Server estabelecida com sucesso" });
       return true;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error({
-        message: `Erro ao conectar ao SQL Server`,
-        error: msg,
-        host: this.config.host,
-      });
+    } catch {
+      logger.error({ message: "Erro ao conectar ao SQL Server" });
       return false;
     }
   }
 
   async desconectar(): Promise<void> {
-    if (this.pool) {
-      await this.pool.close();
-      this.pool = null;
-    }
-  }
-
-  private processarQueryEParams(query: string, params?: any[]): string {
-    if (!params || params.length === 0) return query;
-    let processedQuery = query;
-    for (let index = params.length - 1; index >= 0; index--) {
-      const param = params[index];
-      const placeholder = `$${index + 1}`;
-      if (processedQuery.includes(placeholder)) {
-        const valorFormatado =
-          param === null || param === undefined
-            ? "NULL"
-            : `'${String(param).replace(/'/g, "''")}'`;
-        processedQuery = processedQuery.replace(
-          new RegExp(`\\$${index + 1}\\b`, "g"),
-          valorFormatado
-        );
+    const pool = this.pool;
+    this.pool = null;
+    if (pool) {
+      try {
+        await pool.close();
+      } catch {
+        logger.error({ message: "Erro ao desconectar do SQL Server" });
+        throw new Error("Falha ao desconectar do SQL Server.");
       }
     }
-    return processedQuery;
   }
 
-  async executarQuery(query: string, params?: any[]): Promise<any[]> {
-    if (!this.pool) {
-      throw new Error("Conexão não estabelecida");
-    }
+  /** SQL Server has no equivalent session READ ONLY flag: restricted DB grants remain mandatory. */
+  async executarQuerySomenteLeitura(query: string, params: unknown[]): Promise<any[]> {
+    assertReadOnlyAccountQuery(query, params);
+    return this.executarQuery(query, params);
+  }
 
+  async executarQuery(query: string, params: unknown[] = []): Promise<any[]> {
+    if (!this.pool) throw new Error("Conexão não estabelecida");
+    const compiled = compilePositionalQuery(query, params, "sqlserver");
     try {
-      const processedQuery = this.processarQueryEParams(query, params);
       const request = this.pool.request();
-      const result = await request.query(processedQuery);
-      return result.recordset || [];
-    } catch (error) {
-      logger.error({
-        message: "Erro ao executar query no SQL Server",
-        error: error instanceof Error ? error.message : String(error),
+      compiled.names.forEach((name, index) => {
+        const value = compiled.values[index];
+        // Explicit types avoid implicit varchar/non-Unicode strings, 32-bit Int
+        // overflow for JS integers, and lower-precision DateTime conversion.
+        const type = typeof value === "number" ? sql.Float
+          : typeof value === "boolean" ? sql.Bit
+          : value instanceof Date ? sql.DateTime2
+          : Buffer.isBuffer(value) ? sql.VarBinary(sql.MAX)
+          : sql.NVarChar(sql.MAX); // includes a typed SQL NULL
+        request.input(name, type, value);
       });
-      throw error;
+      const result = await request.query(compiled.sql);
+      return result.recordset || [];
+    } catch {
+      logger.error({ message: "Erro ao executar query no SQL Server" });
+      throw new Error("Falha ao executar consulta no SQL Server.");
     }
   }
 
@@ -120,23 +102,23 @@ export class SqlServerConnector {
           primeiroRegistro: null,
         };
       }
-
       const dados = await this.executarQuery(query);
-      await this.desconectar();
-
       return {
         sucesso: true,
         mensagem: `Conexão OK. Query retornou ${dados.length} registros`,
         totalRegistros: dados.length,
         primeiroRegistro: dados[0] || null,
       };
-    } catch (error) {
+    } catch {
       return {
         sucesso: false,
-        mensagem: error instanceof Error ? error.message : "Erro desconhecido",
+        mensagem: "Falha ao testar consulta no SQL Server.",
         totalRegistros: 0,
         primeiroRegistro: null,
       };
+    } finally {
+      // Also release a pool after a query failure; do not mask the safe result.
+      try { await this.desconectar(); } catch { /* already logged safely */ }
     }
   }
 }

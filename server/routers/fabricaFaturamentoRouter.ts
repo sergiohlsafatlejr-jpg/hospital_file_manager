@@ -37,7 +37,9 @@ import { EasyVisionConnector } from "../connectors/EasyVisionConnector";
 import { OracleConnector } from "../connectors/OracleConnector";
 import { SqlServerConnector } from "../connectors/SqlServerConnector";
 import { MysqlConnector } from "../connectors/MysqlConnector";
-import { ENV } from "../_core/env";
+import { lerContaFabricaBanco, configuracaoFabricaBanco } from "../fabricaBancoOrigem";
+import { prepararColecaoBanco, versaoContaBanco, exigirEstadoBanco, hashBanco } from "../fabricaBancoSnapshot";
+import { cadastrarRecepcaoBanco, sincronizarEsteiraBanco, tentarReplayEsteiraBanco } from "../fabricaBancoEsteira";
 import { parseXML } from "../parsers";
 import { parseContaHonorarios } from "../contaHonorariosParser";
 import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
@@ -638,558 +640,18 @@ function mapearTipoAtendimentoFabrica(raw: any): (typeof fabricaTipoAtendimentoE
 }
 
 async function executarBuscaContaBancoHospitalFabrica(params: {
-  db: any;
-  usuario: UsuarioHospital;
-  hospitalEstabelecimentoId: number;
-  numeroContaInput: string;
-  persistirItens: boolean;
+  db: any; usuario: UsuarioHospital; hospitalEstabelecimentoId: number; numeroContaInput: string;
 }) {
-  const { db, usuario, hospitalEstabelecimentoId, persistirItens } = params;
-  const numeroContaLimpo = params.numeroContaInput.trim();
-
-  // 1. Verificar configuração "Busca Conta" no Integrador de Dados
-  let querySql: string | null = null;
-  let conexaoConfig: { host: string; port: number; database: string; user: string; password: string } | null = null;
-  let tipoBancoOrigem = "postgres";
-  let configSource = "nenhum";
-
-  const mapeamentos = await db
-    .select()
-    .from(integracaoMapeamentos)
-    .where(
-      and(
-        eq(integracaoMapeamentos.estabelecimentoId, hospitalEstabelecimentoId),
-        eq(integracaoMapeamentos.ativo, "sim"),
-        like(integracaoMapeamentos.nome, "%Busca Conta%")
-      )
-    )
-    .limit(1);
-
-  if (mapeamentos.length > 0 && mapeamentos[0].querySql) {
-    const mapeamento = mapeamentos[0];
-    querySql = mapeamento.querySql;
-    configSource = `Integrador (${mapeamento.nome})`;
-
-    const conexoes = await db
-      .select()
-      .from(integracaoConexoes)
-      .where(
-        and(
-          eq(integracaoConexoes.id, mapeamento.conexaoId),
-          eq(integracaoConexoes.estabelecimentoId, hospitalEstabelecimentoId)
-        )
-      )
-      .limit(1);
-
-    if (conexoes.length > 0) {
-      const conexao = conexoes[0];
-      tipoBancoOrigem = conexao.tipoBanco || "postgres";
-      const senha = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
-      conexaoConfig = {
-        host: conexao.host,
-        port: conexao.porta,
-        database: conexao.banco,
-        user: conexao.usuario,
-        password: senha,
-      };
-    }
-  } else {
-    const configs = await db
-      .select()
-      .from(queryConfiguracoes)
-      .where(
-        and(
-          eq(queryConfiguracoes.estabelecimentoId, hospitalEstabelecimentoId),
-          eq(queryConfiguracoes.tipoDados, "busca_conta"),
-          eq(queryConfiguracoes.ativo, true)
-        )
-      )
-      .limit(1);
-
-    if (configs.length > 0) {
-      const config = configs[0];
-      querySql = config.querySql;
-      configSource = `Query Config #${config.id}`;
-      if (config.sistema === "tasy") tipoBancoOrigem = "oracle";
-      else if (config.sistema === "warleine") tipoBancoOrigem = "sqlserver";
-      else tipoBancoOrigem = "postgres";
-
-      if (config.conexaoConfig) {
-        conexaoConfig =
-          typeof config.conexaoConfig === "string"
-            ? JSON.parse(config.conexaoConfig)
-            : config.conexaoConfig;
-      }
-    }
-  }
-
-  if (!conexaoConfig && querySql && ENV.warleineDbHost) {
-    conexaoConfig = {
-      host: ENV.warleineDbHost,
-      port: parseInt(ENV.warleineDbPort || "5432"),
-      database: ENV.warleineDbName,
-      user: ENV.warleineDbUser,
-      password: ENV.warleineDbPassword,
-    };
-    configSource += " (ENV)";
-  }
-
-  let dados: any[] = [];
-  let fonteDados: "BANCO_REMOTO" | "CACHE_LOCAL" = "BANCO_REMOTO";
-  let erroRemoto: string | null = null;
-
-  if (querySql && conexaoConfig) {
-    let connector: any;
-    switch (tipoBancoOrigem.toLowerCase()) {
-      case "oracle":
-      case "tasy":
-        connector = new OracleConnector(conexaoConfig);
-        break;
-      case "mysql":
-        connector = new MysqlConnector(conexaoConfig);
-        break;
-      case "sqlserver":
-        connector = new SqlServerConnector(conexaoConfig);
-        break;
-      case "postgres":
-      default:
-        connector = new EasyVisionConnector(conexaoConfig);
-        break;
-    }
-
-    try {
-      const conectado = await connector.conectar();
-      if (!conectado) {
-        throw new Error(`Não foi possível conectar ao servidor ${conexaoConfig.host}:${conexaoConfig.port}/${conexaoConfig.database}`);
-      }
-      dados = await connector.executarQuery(querySql, [numeroContaLimpo]);
-      fonteDados = "BANCO_REMOTO";
-      await connector.desconectar();
-    } catch (err) {
-      erroRemoto = err instanceof Error ? err.message : String(err);
-      try {
-        await connector.desconectar();
-      } catch {
-        // Ignora erro ao fechar conexão falha
-      }
-      logger.warn({
-        message: "Busca direta no banco do hospital falhou; tentando fallback local",
-        numeroConta: numeroContaLimpo,
-        hospitalEstabelecimentoId,
-        error: erroRemoto,
-      });
-    }
-  }
-
-  // Fallback para tabelas locais sincronizadas caso o banco remoto não retorne ou não esteja configurado
-  if (!dados || dados.length === 0) {
-    try {
-      const localFatRes = await db.execute(sql`
-        SELECT
-          numconta as numconta,
-          numatend as numatend,
-          guiacobra as guiacobra,
-          aihguia as aihguia,
-          protocolo as protocolo,
-          numfatura as numfatura,
-          nomeconv as nomeconv,
-          codconv as codconv,
-          matricula as matricula,
-          tipoproc as tipoproc,
-          procdisco as codigoitem,
-          codproprio as codigoitemtuss,
-          descricao as descricao,
-          data as dataexecucao,
-          dataint as datainternacao,
-          datasai as dataalta,
-          mesprod as competencia,
-          nomeprest as nomeprest,
-          prestexe as prestexe,
-          nomecc as setor,
-          vl_unitario as valorunitario,
-          quantidade as quantidade,
-          vl_faturado as valortotal,
-          nomepac as pacientenome,
-          tipoatend as tipoatend
-        FROM integ_faturado
-        WHERE (numconta = ${numeroContaLimpo} OR guiacobra = ${numeroContaLimpo} OR numatend = ${numeroContaLimpo})
-          AND estabelecimento_id = ${hospitalEstabelecimentoId}
-        ORDER BY data, tipoproc, descricao
-      `);
-      const rowsFat = extrairLinhasSql(localFatRes);
-      if (rowsFat.length > 0) {
-        dados = rowsFat;
-        fonteDados = "CACHE_LOCAL";
-        configSource = "Base Sincronizada (integ_faturado)";
-      }
-    } catch {
-      // Tabela pode ter estrutura parcial em ambientes de teste
-    }
-  }
-
-  // Segundo fallback: atendimentos_a_faturar / atendimentos_unificados (contas abertas ainda sem itens faturados)
-  if (!dados || dados.length === 0) {
-    try {
-      const localAtendRes = await db.execute(sql`
-        SELECT
-          COALESCE(numero_conta, numero_atendimento) as numconta,
-          numero_atendimento as numatend,
-          numero_guia as guiacobra,
-          nome_paciente as pacientenome,
-          convenio as nomeconv,
-          tipo_atendimento as tipoatend,
-          data_atendimento as datainternacao,
-          data_alta as dataalta,
-          setor as setor,
-          NULL as codigoitem,
-          NULL as descricao,
-          0 as quantidade,
-          0 as valorunitario,
-          COALESCE(valor_estimado, 0) as valortotal_estimado
-        FROM atendimentos_a_faturar
-        WHERE (numero_conta = ${numeroContaLimpo} OR numero_atendimento = ${numeroContaLimpo} OR numero_guia = ${numeroContaLimpo})
-          AND estabelecimento_id = ${hospitalEstabelecimentoId}
-        LIMIT 1
-      `);
-      const rowsAtend = extrairLinhasSql(localAtendRes);
-      if (rowsAtend.length > 0) {
-        dados = rowsAtend;
-        fonteDados = "CACHE_LOCAL";
-        configSource = "Base Sincronizada (atendimentos_a_faturar)";
-      }
-    } catch {
-      // Ignora se tabela não existir
-    }
-  }
-
-  if (!dados || dados.length === 0) {
-    const detalheErro = erroRemoto
-      ? ` (Erro ao consultar banco do hospital: ${erroRemoto})`
-      : !querySql
-        ? ` (Mapeamento "Busca Conta" ainda não cadastrado no Integrador de Dados para este hospital)`
-        : "";
-    return {
-      encontrada: false as const,
-      mensagem: `Conta "${numeroContaLimpo}" não encontrada no sistema do hospital${detalheErro}.`,
-      configSource,
-      fonteDados,
-    };
-  }
-
-  const primeiro = dados[0];
-  const numeroContaResolvido = String(
-    getFieldFlexivel(primeiro, "numconta", "numero_conta", "conta", "nr_interno_conta", "cd_reg_fat") || numeroContaLimpo
-  ).trim();
-  const numeroAtendimento = getFieldFlexivel(primeiro, "numatend", "numero_atendimento", "atendimento", "nr_atendimento", "cd_atendimento");
-  const numeroGuia = getFieldFlexivel(primeiro, "guiacobra", "guia_cobra", "guia", "nr_guia", "aihguia", "aih_guia");
-  const nomePaciente = getFieldFlexivel(primeiro, "pacientenome", "nomepaciente", "nomepac", "nome_paciente", "paciente", "nm_pessoa_fisica", "nm_paciente");
-  const carteiraBeneficiario = getFieldFlexivel(primeiro, "matricula", "carteirinha", "carteira", "numero_carteirinha");
-  const convenioNomeRaw = getFieldFlexivel(primeiro, "nomeconv", "nome_conv", "convenio", "nomeconvenio", "ds_convenio", "nm_convenio");
-  const convenioCodigoRaw = getFieldFlexivel(primeiro, "codconv", "cod_conv", "codigo_convenio", "cd_convenio");
-  const tipoAtendimentoRaw = getFieldFlexivel(primeiro, "tipoatend", "tipo_atend", "tipo_atendimento");
-  const dataEntradaIso = formatarDataIso(
-    getFieldFlexivel(primeiro, "datainternacao", "dataint", "data_internacao", "dt_inicio", "data_entrada", "dt_entrada", "dt_atendimento")
-  );
-  const dataAltaIso = formatarDataIso(
-    getFieldFlexivel(primeiro, "dataalta", "datasai", "data_alta", "data_saida", "dt_fim", "dt_alta")
-  );
-  const competenciaRaw = getFieldFlexivel(primeiro, "competencia", "mesprod", "mes_prod", "comp", "encerramento");
-
-  // Resolver convênio canônico do hospital sem travar caso ainda não esteja cadastrado
-  let convenioIdResolvido: number | null = null;
-  let convenioNomeResolvido: string | null = convenioNomeRaw ? String(convenioNomeRaw).trim() : null;
-  if (convenioNomeResolvido || convenioCodigoRaw) {
-    try {
-      const conv = await resolverConvenioDoHospital(
-        db,
-        usuario.id,
-        hospitalEstabelecimentoId,
-        null,
-        convenioNomeResolvido,
-        convenioCodigoRaw ? String(convenioCodigoRaw).trim() : null
-      );
-      convenioIdResolvido = conv.id;
-      convenioNomeResolvido = conv.nome || convenioNomeResolvido;
-    } catch {
-      // Mantém apenas o nome vindo do banco do hospital para exibição/seleção manual
-    }
-  }
-
-  // Filtrar linhas que realmente possuem itens cobrados (quando a query usa LEFT JOIN e a conta ainda não tem baixas de farmácia, codigoitem e descricao vêm NULL)
-  const linhasComItem = dados.filter((row: any) => {
-    const cod = getFieldFlexivel(row, "codigoitem", "procdisco", "cod_item", "cd_item", "codigo_item", "codigoitemtuss", "codproprio", "cod_tuss", "codigo_tuss", "cd_item_tuss", "codproc", "cd_procedimento", "cd_pro_fat");
-    const desc = getFieldFlexivel(row, "descricao", "desc_item", "ds_item", "ds_procedimento", "ds_pro_fat", "descricao_procedimento");
-    const vt = parseNumeroFlexivel(getFieldFlexivel(row, "valortotal", "vl_faturado", "valor_total", "vlfaturado", "valor_faturado", "vl_produzido", "vl_procedimento", "vl_total_conta", "valor_cobrado"));
-    return Boolean(cod || desc || vt > 0);
-  });
-
-  let valorTotalConta = 0;
-  for (const row of linhasComItem) {
-    valorTotalConta += parseNumeroFlexivel(
-      getFieldFlexivel(row, "valortotal", "vl_faturado", "valor_total", "vlfaturado", "valor_faturado", "vl_produzido", "vl_procedimento", "vl_total_conta", "valor_cobrado")
-    );
-  }
-
-  const possuiItensBaixados = linhasComItem.length > 0;
-  let contaConvenioResumoId: number | null = null;
-  let statusAuditoriaRegras: "pendente" | "conforme" | "divergente" = "pendente";
-  let totalDivergenciasRegras = 0;
-  let scoreRiscoAuditoria = 0;
-  let comparativo: {
-    hadPreviousData: boolean;
-    valorAnterior: number;
-    valorNovo: number;
-    diferencaValor: number;
-    totalItensAnterior: number;
-    totalItensNovo: number;
-    itensAdicionados: number;
-    itensRemovidos: number;
-  } | null = null;
-
-  if (persistirItens && possuiItensBaixados) {
-    // Capturar dados anteriores para comparativo
-    const resumoAntigo = await db
-      .select({
-        id: contasConvenioResumo.id,
-        totalItens: contasConvenioResumo.totalItens,
-        valorTotal: contasConvenioResumo.valorTotal,
-      })
-      .from(contasConvenioResumo)
-      .where(
-        and(
-          eq(contasConvenioResumo.numeroConta, numeroContaResolvido),
-          eq(contasConvenioResumo.estabelecimentoId, hospitalEstabelecimentoId),
-          eq(contasConvenioResumo.origem, "BANCO_CLIENTE")
-        )
-      )
-      .limit(1);
-
-    const hadPreviousData = resumoAntigo.length > 0;
-    const valorAnterior = resumoAntigo[0] ? parseNumeroFlexivel(resumoAntigo[0].valorTotal) : 0;
-    const totalItensAnterior = Number(resumoAntigo[0]?.totalItens || 0);
-
-    // Limpar itens e resumo anteriores de BANCO_CLIENTE desta conta
-    await db
-      .delete(contasConvenioItens)
-      .where(
-        and(
-          eq(contasConvenioItens.numeroConta, numeroContaResolvido),
-          eq(contasConvenioItens.estabelecimentoId, hospitalEstabelecimentoId),
-          eq(contasConvenioItens.origem, "BANCO_CLIENTE")
-        )
-      );
-
-    await db
-      .delete(contasConvenioResumo)
-      .where(
-        and(
-          eq(contasConvenioResumo.numeroConta, numeroContaResolvido),
-          eq(contasConvenioResumo.estabelecimentoId, hospitalEstabelecimentoId),
-          eq(contasConvenioResumo.origem, "BANCO_CLIENTE")
-        )
-      );
-
-    // Inserir os novos itens em lotes
-    const BATCH_SIZE = 100;
-    for (let i = 0; i < linhasComItem.length; i += BATCH_SIZE) {
-      const batch = linhasComItem.slice(i, i + BATCH_SIZE);
-      const values = batch.map((row: any) => {
-        const vlUnitario = getFieldFlexivel(row, "valorunitario", "vl_unitario", "valor_unitario", "vlunitario", "vl_medico");
-        const vlTotal = getFieldFlexivel(row, "valortotal", "vl_faturado", "valor_total", "vlfaturado", "valor_faturado", "vl_produzido", "vl_procedimento", "vl_total_conta", "valor_cobrado");
-        const qtd = getFieldFlexivel(row, "quantidade", "qtd", "qtde", "qt_procedimento", "qt_lancamento");
-        const codItem = getFieldFlexivel(row, "codigoitem", "procdisco", "cod_item", "cd_item", "codigo_item", "codproc", "cd_procedimento", "cd_pro_fat");
-        const codTuss = getFieldFlexivel(row, "codigoitemtuss", "codproprio", "cod_tuss", "codigo_tuss", "cd_item_tuss", "cd_procedimento_tuss", "codigo_tuss");
-        const desc = getFieldFlexivel(row, "descricao", "desc_item", "ds_item", "ds_procedimento", "ds_pro_fat", "descricao_procedimento");
-        const dataExec = getFieldFlexivel(row, "dataexecucao", "data", "dt_item", "data_execucao", "dt_procedimento", "dt_lancamento", "dt_conta");
-        const prest = getFieldFlexivel(row, "nomeprest", "prestexe", "nome_prest", "prof_exec");
-        const setor = getFieldFlexivel(row, "setor", "nomecc", "nome_cc", "centro_custo", "ds_setor_atendimento", "ds_unid_int");
-        const tipoProc = getFieldFlexivel(row, "tipoproc", "tipo_proc", "tipo_item", "tipo");
-
-        const vt = parseNumeroFlexivel(vlTotal);
-        const qtNum = qtd !== null && qtd !== undefined ? parseNumeroFlexivel(qtd) : 1;
-        const vuNum = vlUnitario !== null && vlUnitario !== undefined ? parseNumeroFlexivel(vlUnitario) : qtNum > 0 ? vt / qtNum : vt;
-
-        let tipoItem = tipoProc ? String(tipoProc) : "OUTROS";
-        const ti = tipoItem.toLowerCase();
-        if (ti.includes("proc")) tipoItem = "PROCEDIMENTO";
-        else if (ti.includes("diar")) tipoItem = "DIARIA";
-        else if (ti.includes("mat") || ti.includes("med")) tipoItem = "MAT_MED";
-        else if (ti.includes("tax")) tipoItem = "TAXA";
-        else if (ti.includes("gas")) tipoItem = "GASES";
-
-        return {
-          origem: "BANCO_CLIENTE" as const,
-          numeroConta: numeroContaResolvido,
-          numeroGuia: numeroGuia ? String(numeroGuia) : null,
-          pacienteNome: nomePaciente ? String(nomePaciente) : null,
-          carteiraBeneficiario: carteiraBeneficiario ? String(carteiraBeneficiario) : null,
-          convenio: convenioNomeResolvido,
-          convenioId: convenioIdResolvido,
-          estabelecimentoId: hospitalEstabelecimentoId,
-          tipoItem,
-          codigoItem: codItem ? String(codItem) : null,
-          codigoItemTuss: codTuss ? String(codTuss) : null,
-          descricaoItem: desc ? String(desc) : null,
-          quantidade: String(qtNum),
-          valorUnitario: String(vuNum),
-          valorTotal: String(vt),
-          dataExecucao: parseDataCivilFabrica(dataExec),
-          competencia: competenciaRaw ? String(competenciaRaw).replace("/", "-") : null,
-          profissionalExecutante: prest ? String(prest) : null,
-          setor: setor ? String(setor) : null,
-          statusAnalise: "pendente" as const,
-        };
-      });
-      await db.insert(contasConvenioItens).values(values);
-    }
-
-    const [insertResumo] = await db.insert(contasConvenioResumo).values({
-      numeroConta: numeroContaResolvido,
-      estabelecimentoId: hospitalEstabelecimentoId,
-      origem: "BANCO_CLIENTE",
-      convenio: convenioNomeResolvido,
-      convenioId: convenioIdResolvido,
-      pacienteNome: nomePaciente ? String(nomePaciente) : null,
-      carteiraBeneficiario: carteiraBeneficiario ? String(carteiraBeneficiario) : null,
-      totalItens: linhasComItem.length,
-      valorTotal: String(valorTotalConta),
-      dataInternacao: dataEntradaIso ? parseDataCivilFabrica(dataEntradaIso) : null,
-      dataAlta: dataAltaIso ? parseDataCivilFabrica(dataAltaIso) : null,
-      competencia: competenciaRaw ? String(competenciaRaw).replace("/", "-") : null,
-      statusAnalise: "pendente",
-      buscadoPor: usuario.id,
-    });
-    contaConvenioResumoId = Number((insertResumo as any).insertId) || null;
-
-    if (hadPreviousData) {
-      comparativo = {
-        hadPreviousData: true,
-        valorAnterior,
-        valorNovo: valorTotalConta,
-        diferencaValor: valorTotalConta - valorAnterior,
-        totalItensAnterior,
-        totalItensNovo: linhasComItem.length,
-        itensAdicionados: Math.max(0, linhasComItem.length - totalItensAnterior),
-        itensRemovidos: Math.max(0, totalItensAnterior - linhasComItem.length),
-      };
-    }
-
-    // Executar Motor de Regras / Gabaritos automaticamente
-    try {
-      const resultadoComparacao = await compararContaComPadroes(
-        numeroContaResolvido,
-        hospitalEstabelecimentoId
-      );
-
-      const divergenciasPorItem = new Map<string, any[]>();
-      const divergenciasGerais: any[] = [];
-      for (const div of resultadoComparacao.divergencias) {
-        if (div.tipo === "ITEM_FALTANTE" || !div.codigoItem) {
-          divergenciasGerais.push(div);
-        } else {
-          const arr = divergenciasPorItem.get(div.codigoItem) || [];
-          arr.push(div);
-          divergenciasPorItem.set(div.codigoItem, arr);
-        }
-      }
-
-      const itensInseridos = await db
-        .select({ id: contasConvenioItens.id, codigoItem: contasConvenioItens.codigoItem })
-        .from(contasConvenioItens)
-        .where(
-          and(
-            eq(contasConvenioItens.numeroConta, numeroContaResolvido),
-            eq(contasConvenioItens.estabelecimentoId, hospitalEstabelecimentoId),
-            eq(contasConvenioItens.origem, "BANCO_CLIENTE")
-          )
-        );
-
-      for (const item of itensInseridos) {
-        const divs = item.codigoItem ? divergenciasPorItem.get(item.codigoItem) : null;
-        if (divs && divs.length > 0) {
-          await db
-            .update(contasConvenioItens)
-            .set({ statusAnalise: "divergente", divergencias: divs })
-            .where(eq(contasConvenioItens.id, item.id));
-        } else {
-          await db
-            .update(contasConvenioItens)
-            .set({ statusAnalise: "conforme", divergencias: null })
-            .where(eq(contasConvenioItens.id, item.id));
-        }
-      }
-
-      statusAuditoriaRegras = resultadoComparacao.statusGeral === "divergente" ? "divergente" : "conforme";
-      totalDivergenciasRegras = resultadoComparacao.divergencias.length;
-      scoreRiscoAuditoria = Number(resultadoComparacao.scoreRisco?.score || 0);
-
-      await db
-        .update(contasConvenioResumo)
-        .set({
-          statusAnalise: statusAuditoriaRegras,
-          scoreRisco: scoreRiscoAuditoria,
-          detalhesRisco: resultadoComparacao.scoreRisco,
-          divergenciasGerais: divergenciasGerais.length > 0 ? divergenciasGerais : null,
-        })
-        .where(
-          and(
-            eq(contasConvenioResumo.numeroConta, numeroContaResolvido),
-            eq(contasConvenioResumo.estabelecimentoId, hospitalEstabelecimentoId),
-            eq(contasConvenioResumo.origem, "BANCO_CLIENTE")
-          )
-        );
-    } catch (errAnalise) {
-      logger.warn({
-        message: "Motor de regras não pôde concluir análise automática da conta do banco",
-        numeroConta: numeroContaResolvido,
-        error: errAnalise instanceof Error ? errAnalise.message : String(errAnalise),
-      });
-    }
-  }
-
-  return {
-    encontrada: true as const,
-    fonteDados,
-    configSource,
-    cabecalho: {
-      numeroContaHospital: numeroContaResolvido,
-      numeroAtendimento: numeroAtendimento ? String(numeroAtendimento).trim() : null,
-      numeroGuia: numeroGuia ? String(numeroGuia).trim() : null,
-      nomePaciente: nomePaciente ? String(nomePaciente).trim() : `Paciente Conta ${numeroContaResolvido}`,
-      carteiraBeneficiario: carteiraBeneficiario ? String(carteiraBeneficiario).trim() : null,
-      convenioId: convenioIdResolvido,
-      convenioNome: convenioNomeResolvido,
-      convenioCodigo: convenioCodigoRaw ? String(convenioCodigoRaw).trim() : null,
-      tipoAtendimento: mapearTipoAtendimentoFabrica(tipoAtendimentoRaw),
-      dataEntrada: dataEntradaIso || new Date().toISOString().slice(0, 10),
-      dataAlta: dataAltaIso,
-      competencia: competenciaRaw ? String(competenciaRaw).replace("/", "-") : null,
-    },
-    itensInfo: {
-      possuiItensBaixados,
-      totalItens: linhasComItem.length,
-      valorTotal: valorTotalConta,
-      contaConvenioResumoId,
-      statusAuditoriaRegras,
-      totalDivergenciasRegras,
-      scoreRiscoAuditoria,
-      comparativo,
-      amostraItens: linhasComItem.slice(0, 8).map((row: any) => ({
-        codigo: String(
-          getFieldFlexivel(row, "codigoitem", "procdisco", "cod_item", "cd_item", "codigo_item", "codproc", "cd_procedimento", "cd_pro_fat") || "-"
-        ),
-        descricao: String(
-          getFieldFlexivel(row, "descricao", "desc_item", "ds_item", "ds_procedimento", "ds_pro_fat", "descricao_procedimento") || "Item"
-        ),
-        quantidade: parseNumeroFlexivel(getFieldFlexivel(row, "quantidade", "qtd", "qtde", "qt_procedimento", "qt_lancamento") || 1),
-        valorTotal: parseNumeroFlexivel(
-          getFieldFlexivel(row, "valortotal", "vl_faturado", "valor_total", "vlfaturado", "valor_faturado", "vl_produzido", "vl_procedimento", "vl_total_conta", "valor_cobrado")
-        ),
-      })),
-    },
-  };
+  const remote = await lerContaFabricaBanco(params.db, params.hospitalEstabelecimentoId, params.numeroContaInput);
+  const colecao = await prepararColecaoBanco(params.db, params.hospitalEstabelecimentoId, params.numeroContaInput.trim(), remote.dados);
+  if (!colecao.encontrada) return { encontrada: false as const, mensagem: "Conta não encontrada na origem hospitalar.", ...remote, colecao };
+  return { encontrada: true as const, fonteDados: remote.fonteDados, configSource: remote.configSource, colecao,
+    cabecalho: { ...colecao.cabecalho, tipoAtendimento: mapearTipoAtendimentoFabrica(colecao.cabecalho.tipoAtendimento) },
+    itensInfo: { possuiItensBaixados: colecao.itens.length > 0, totalItens: colecao.itens.length, valorTotal: Number(colecao.valorTotal),
+      contaConvenioResumoId: null as number | null, statusAuditoriaRegras: "pendente" as const, totalDivergenciasRegras: 0,
+      scoreRiscoAuditoria: 0, comparativo: null, amostraItens: colecao.itens.slice(0, 8).map(item => ({ codigo: item.codigoItem || item.codigoItemTuss || "-",
+        descricao: item.descricaoItem || "Item", quantidade: item.quantidade == null ? 0 : Number(item.quantidade), valorTotal: Number(item.valorTotal) })) } };
 }
-
 export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 1. LISTAR DADOS AUXILIARES (HOSPITAIS, CONVÊNIOS, COLABORADORES E PERFIS POR SETOR)
@@ -1235,29 +697,9 @@ export const fabricaFaturamentoRouter = router({
 
     const hospitaisRaw = (hospitaisResult as any)[0] || [];
     const mapaBuscaContaPorHospital = new Map<number, string>();
-    try {
-      if (hospitalIdsBase.length > 0) {
-        const mapsAtivos = await db
-          .select({
-            estabelecimentoId: integracaoMapeamentos.estabelecimentoId,
-            nome: integracaoMapeamentos.nome,
-          })
-          .from(integracaoMapeamentos)
-          .where(
-            and(
-              inArray(integracaoMapeamentos.estabelecimentoId, hospitalIdsBase),
-              eq(integracaoMapeamentos.ativo, "sim"),
-              like(integracaoMapeamentos.nome, "%Busca Conta%")
-            )
-          );
-        for (const m of mapsAtivos) {
-          if (m.estabelecimentoId && !mapaBuscaContaPorHospital.has(Number(m.estabelecimentoId))) {
-            mapaBuscaContaPorHospital.set(Number(m.estabelecimentoId), m.nome);
-          }
-        }
-      }
-    } catch {
-      // Ignora caso a tabela não esteja disponível em ambientes de teste isolados
+    for (const hospitalId of hospitalIdsBase) {
+      try { const config = await configuracaoFabricaBanco(db, hospitalId); mapaBuscaContaPorHospital.set(hospitalId, config.configSource); }
+      catch { /* Configuração inválida não é exibida como integração utilizável. */ }
     }
     const hospitaisTodos = hospitaisRaw.map((h: any) => ({
       ...h,
@@ -1369,6 +811,7 @@ export const fabricaFaturamentoRouter = router({
         encaminharDiretoFaturamento: z.boolean().default(false),
         faturistaId: z.number().optional().nullable(),
         sincronizarItensDoBanco: z.boolean().optional().default(true),
+        idempotencyKey: z.string().min(1).max(128).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -1385,7 +828,8 @@ export const fabricaFaturamentoRouter = router({
           input.hospitalEstabelecimentoId,
           input.convenioId,
           input.convenioNome,
-          null
+          null,
+          db,
         );
         convIdResolvido = convenio.id;
         nomeConv = convenio.nome || nomeConv;
@@ -1419,7 +863,7 @@ export const fabricaFaturamentoRouter = router({
           ? null
           : usuarioNome;
 
-      const [insertRes] = await db.insert(fabricaContas).values({
+      const values = {
         hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
         convenioId: convIdResolvido,
         convenioNome: nomeConv,
@@ -1440,119 +884,27 @@ export const fabricaFaturamentoRouter = router({
         faturistaId: input.faturistaId || null,
         faturistaNome: faturistaNome,
         observacoes: input.observacoes?.trim() || null,
-      });
-
-      const contaId = Number((insertRes as any).insertId);
-
-      // Registrar histórico de entrada na Recepção
-      await db.insert(fabricaHistoricoFluxo).values({
-        fabricaContaId: contaId,
-        hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
-        setorOrigem: null,
-        setorDestino: "recepcao",
-        acao: "recepcionado",
-        usuarioId: ctx.user.id,
-        usuarioNome,
-        dataEntradaSetor: dataRecebNorm,
-        dataSaidaSetor: nowStr,
-        duracaoSegundos: 0,
-        observacao: input.observacoes || "Cadastro inicial na Recepção de Contas Safatle",
-      });
-
-      let itensSincronizadosInfo: {
-        possuiItensBaixados: boolean;
-        totalItens: number;
-        valorTotal: number;
-        statusAuditoriaRegras: string;
-        totalDivergenciasRegras: number;
-      } | null = null;
-
-      const numContaParaSync = (input.numeroContaHospital || input.numeroGuia || "").trim();
-      if (input.sincronizarItensDoBanco && numContaParaSync) {
-        try {
-          const buscaRes = await executarBuscaContaBancoHospitalFabrica({
-            db,
-            usuario,
-            hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
-            numeroContaInput: numContaParaSync,
-            persistirItens: true,
-          });
-          if (buscaRes.encontrada && buscaRes.itensInfo.possuiItensBaixados) {
-            itensSincronizadosInfo = {
-              possuiItensBaixados: true,
-              totalItens: buscaRes.itensInfo.totalItens,
-              valorTotal: buscaRes.itensInfo.valorTotal,
-              statusAuditoriaRegras: buscaRes.itensInfo.statusAuditoriaRegras,
-              totalDivergenciasRegras: buscaRes.itensInfo.totalDivergenciasRegras,
-            };
-            await db
-              .update(fabricaContas)
-              .set({
-                contaConvenioResumoId: buscaRes.itensInfo.contaConvenioResumoId,
-                valorFaturadoInicial: String(buscaRes.itensInfo.valorTotal.toFixed(2)),
-                valorFaturadoFinal: String(buscaRes.itensInfo.valorTotal.toFixed(2)),
-                totalItensXml: buscaRes.itensInfo.totalItens,
-                statusAuditoriaRegras: buscaRes.itensInfo.statusAuditoriaRegras,
-                totalDivergenciasRegras: buscaRes.itensInfo.totalDivergenciasRegras,
-                scoreRiscoAuditoria: buscaRes.itensInfo.scoreRiscoAuditoria,
-              })
-              .where(
-                and(
-                  eq(fabricaContas.id, contaId),
-                  eq(fabricaContas.hospitalEstabelecimentoId, input.hospitalEstabelecimentoId)
-                )
-              );
-
-            await db.insert(fabricaHistoricoFluxo).values({
-              fabricaContaId: contaId,
-              hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
-              setorOrigem: setorInicial,
-              setorDestino: setorInicial,
-              acao: "conta_sincronizada_banco",
-              usuarioId: ctx.user.id,
-              usuarioNome,
-              dataEntradaSetor: nowStr,
-              dataSaidaSetor: nowStr,
-              duracaoSegundos: 0,
-              valorMovimentado: String(buscaRes.itensInfo.valorTotal.toFixed(2)),
-              observacao: `Itens importados automaticamente do banco do hospital (${buscaRes.itensInfo.totalItens} itens | R$ ${buscaRes.itensInfo.valorTotal.toFixed(2)} | Regras: ${buscaRes.itensInfo.statusAuditoriaRegras.toUpperCase()} com ${buscaRes.itensInfo.totalDivergenciasRegras} divergência(s)).`,
-            });
-          }
-        } catch (errSync) {
-          logger.warn({
-            message: "Sincronização automática de itens na recepção falhou (cadastro mantido)",
-            contaId,
-            error: errSync instanceof Error ? errSync.message : String(errSync),
-          });
-        }
-      }
-
-      if (input.encaminharDiretoFaturamento) {
-        await db.insert(fabricaHistoricoFluxo).values({
-          fabricaContaId: contaId,
-          hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
-          setorOrigem: "recepcao",
-          setorDestino: "faturamento",
-          acao: "encaminhado",
-          usuarioId: ctx.user.id,
-          usuarioNome,
-          dataEntradaSetor: nowStr,
-          dataSaidaSetor: nowStr,
-          duracaoSegundos: 0,
-          observacao: faturistaNome
-            ? `Encaminhado ao faturamento para ${faturistaNome}`
-            : "Encaminhado direto para a fila do Setor de Faturamento",
-        });
-      }
-
-      return {
-        sucesso: true,
-        id: contaId,
-        itensSincronizados: itensSincronizadosInfo,
-        mensagem: input.encaminharDiretoFaturamento
-          ? "Conta cadastrada na Recepção e já encaminhada ao Setor de Faturamento!"
-          : "Conta recepcionada com sucesso!",
       };
+
+      const numeroConta = values.numeroContaHospital;
+      // Cadastro manual sem número hospitalar não inicia sincronização remota.
+      if (!numeroConta || !input.sincronizarItensDoBanco) {
+        const cadastrarManual = async (tx: any) => {
+          const [inserted] = await tx.insert(fabricaContas).values(values);
+          const id = Number((inserted as any).insertId);
+          if (!Number.isSafeInteger(id) || id <= 0) throw new Error("INVALID_ACCOUNT_ID");
+          await tx.insert(fabricaHistoricoFluxo).values({ fabricaContaId: id, hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
+            setorOrigem: null, setorDestino: setorInicial, acao: "recepcionado", usuarioId: usuario.id, usuarioNome,
+            dataEntradaSetor: dataRecebNorm, dataSaidaSetor: nowStr, duracaoSegundos: 0, observacao: input.observacoes || "Cadastro manual sem importação bancária." });
+          return { sucesso: true, id, itensSincronizados: null, mensagem: "Conta recepcionada manualmente, sem sincronização bancária." };
+        };
+        return typeof db.transaction === "function" ? db.transaction(cadastrarManual) : cadastrarManual(db);
+      }
+      const busca = input.sincronizarItensDoBanco && numeroConta ? await executarBuscaContaBancoHospitalFabrica({
+        db, usuario, hospitalEstabelecimentoId: input.hospitalEstabelecimentoId, numeroContaInput: numeroConta,
+      }) : null;
+      return cadastrarRecepcaoBanco({ db, usuario, usuarioNome, values, colecao: busca?.colecao ?? null,
+        idempotencyKey: input.idempotencyKey, encaminhar: input.encaminharDiretoFaturamento, observacao: input.observacoes || "" });
     }),
 
   // ============================================================
@@ -1578,22 +930,17 @@ export const fabricaFaturamentoRouter = router({
       );
 
       const numLimpo = input.numeroConta.trim();
-      const existentesRes = await db.execute(sql`
-        SELECT id, setor_atual as setorAtual, status_setor as statusSetor, nome_paciente as nomePaciente
-        FROM fabrica_contas
-        WHERE hospital_estabelecimento_id = ${input.hospitalEstabelecimentoId}
-          AND (numero_conta_hospital = ${numLimpo} OR numero_guia = ${numLimpo} OR numero_atendimento = ${numLimpo})
-        ORDER BY id DESC
-        LIMIT 1
-      `);
-      const contaExistente = extrairLinhasSql(existentesRes)[0] || null;
+      const existentes = await db.select().from(fabricaContas).where(and(
+        eq(fabricaContas.hospitalEstabelecimentoId, input.hospitalEstabelecimentoId), eq(fabricaContas.numeroContaHospital, numLimpo),
+      ));
+      if (existentes.length > 1) throw new TRPCError({ code: "CONFLICT", message: "Há mais de uma conta hospitalar cadastrada. Revise a identidade." });
+      const contaExistente = existentes[0] || null;
 
       const resultado = await executarBuscaContaBancoHospitalFabrica({
         db,
         usuario,
         hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
         numeroContaInput: numLimpo,
-        persistirItens: false,
       });
 
       if (!resultado.encontrada) {
@@ -1603,6 +950,7 @@ export const fabricaFaturamentoRouter = router({
           contaExistenteNaEsteira: contaExistente
             ? {
                 id: Number(contaExistente.id),
+                expectedVersion: versaoContaBanco(contaExistente),
                 setorAtual: String(contaExistente.setorAtual),
                 statusSetor: String(contaExistente.statusSetor),
                 nomePaciente: String(contaExistente.nomePaciente),
@@ -1620,6 +968,7 @@ export const fabricaFaturamentoRouter = router({
         contaExistenteNaEsteira: contaExistente
           ? {
               id: Number(contaExistente.id),
+                expectedVersion: versaoContaBanco(contaExistente),
               setorAtual: String(contaExistente.setorAtual),
               statusSetor: String(contaExistente.statusSetor),
               nomePaciente: String(contaExistente.nomePaciente),
@@ -1632,167 +981,33 @@ export const fabricaFaturamentoRouter = router({
   // 2C. SINCRONIZAR / ATUALIZAR CONTA DO BANCO DO HOSPITAL NA ESTEIRA (SETOR 2 E SETOR 3)
   // ============================================================
   sincronizarContaDoBancoNaEsteira: fabricaProcedure
-    .input(
-      z.object({
-        fabricaContaId: z.number().positive(),
-        numeroContaOverride: z.string().optional().nullable(),
-        avancarParaAuditoriaInterna: z.boolean().optional().default(false),
-      })
-    )
+    .input(z.object({ fabricaContaId: z.number().int().positive(), numeroContaOverride: z.string().optional().nullable(),
+      expectedVersion: z.string().regex(/^[a-f0-9]{64}$/), idempotencyKey: z.string().min(1).max(128).optional(),
+      avancarParaAuditoriaInterna: z.boolean().optional().default(false) }))
     .mutation(async ({ input, ctx }) => {
       const usuario = usuarioFabrica(ctx);
       await exigirAcessoFabrica(usuario);
       const db = await obterDbFabrica();
-
-      const [conta] = await db
-        .select()
-        .from(fabricaContas)
-        .where(eq(fabricaContas.id, input.fabricaContaId))
-        .limit(1);
-
-      if (!conta) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada na esteira." });
-      }
-
-      await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar");
+      const [conta] = await db.select().from(fabricaContas).where(eq(fabricaContas.id, input.fabricaContaId)).limit(1);
+      if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada na esteira." });
+      await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar", db);
+      if (input.numeroContaOverride?.trim() && input.numeroContaOverride.trim() !== conta.numeroContaHospital) throw new TRPCError({ code: "CONFLICT", message: "Sincronização não permite trocar a identidade da conta." });
+      const replay = await tentarReplayEsteiraBanco({ db, usuario, hospitalId: conta.hospitalEstabelecimentoId,
+        contaId: conta.id, expectedVersion: input.expectedVersion, idempotencyKey: input.idempotencyKey, avancar: input.avancarParaAuditoriaInterna });
+      if (replay) return replay;
       await exigirSetoresLoteColaborador(db, usuario, [conta]);
-
-      const numeroContaAlvo = (
-        input.numeroContaOverride?.trim() ||
-        conta.numeroContaHospital?.trim() ||
-        conta.numeroGuia?.trim() ||
-        conta.numeroAtendimento?.trim() ||
-        ""
-      );
-
-      if (!numeroContaAlvo) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Esta conta não possui Nº da Conta, Guia ou Atendimento preenchido para buscar no banco do hospital.",
-        });
-      }
-
-      const resultado = await executarBuscaContaBancoHospitalFabrica({
-        db,
-        usuario,
-        hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
-        numeroContaInput: numeroContaAlvo,
-        persistirItens: true,
-      });
-
-      if (!resultado.encontrada) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: resultado.mensagem,
-        });
-      }
-
-      const nowStr = toMysqlDateTime();
-      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
-      const { cabecalho, itensInfo } = resultado;
-
-      const valorInicialAntigo = Number(conta.valorFaturadoInicial) || 0;
-      const novoValorStr = String(itensInfo.valorTotal.toFixed(2));
-
-      const deveAvancarAuditoria =
-        input.avancarParaAuditoriaInterna &&
-        (conta.setorAtual === "faturamento" || conta.setorAtual === "recepcao") &&
-        itensInfo.possuiItensBaixados;
-
-      const novoSetor = deveAvancarAuditoria ? "auditoria_interna" : conta.setorAtual;
-      const novoStatusSetor = deveAvancarAuditoria
-        ? "fila"
-        : conta.statusSetor === "fila"
-          ? "em_andamento"
-          : conta.statusSetor;
-
-      const updates: Record<string, any> = {
-        numeroContaHospital: cabecalho.numeroContaHospital || conta.numeroContaHospital,
-        numeroAtendimento: conta.numeroAtendimento || cabecalho.numeroAtendimento,
-        numeroGuia: conta.numeroGuia || cabecalho.numeroGuia,
-        convenioId: conta.convenioId || cabecalho.convenioId,
-        convenioNome: conta.convenioNome || cabecalho.convenioNome,
-        dataAlta: conta.dataAlta || cabecalho.dataAlta,
-      };
-
-      if (itensInfo.possuiItensBaixados) {
-        updates.contaConvenioResumoId = itensInfo.contaConvenioResumoId;
-        updates.valorFaturadoInicial = valorInicialAntigo > 0 ? String(valorInicialAntigo.toFixed(2)) : novoValorStr;
-        updates.valorFaturadoFinal = novoValorStr;
-        updates.totalItensXml = itensInfo.totalItens;
-        updates.statusAuditoriaRegras = itensInfo.statusAuditoriaRegras;
-        updates.totalDivergenciasRegras = itensInfo.totalDivergenciasRegras;
-        updates.scoreRiscoAuditoria = itensInfo.scoreRiscoAuditoria;
-      }
-
-      if (deveAvancarAuditoria) {
-        updates.setorAtual = "auditoria_interna";
-        updates.statusSetor = "fila";
-        updates.entradaSetorAtualEm = nowStr;
-        updates.faturistaId = conta.faturistaId || usuario.id;
-        updates.faturistaNome = conta.faturistaNome || usuarioNome;
-        updates.responsavelAtualId = null;
-        updates.responsavelAtualNome = null;
-      } else if (conta.setorAtual === "faturamento" && !conta.faturistaId) {
-        updates.faturistaId = usuario.id;
-        updates.faturistaNome = usuarioNome;
-        updates.responsavelAtualId = usuario.id;
-        updates.responsavelAtualNome = usuarioNome;
-        updates.statusSetor = novoStatusSetor;
-      }
-
-      await db
-        .update(fabricaContas)
-        .set(updates)
-        .where(
-          and(
-            eq(fabricaContas.id, conta.id),
-            eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)
-          )
-        );
-
-      const diffTexto =
-        itensInfo.comparativo && itensInfo.comparativo.hadPreviousData
-          ? ` | Antes: R$ ${itensInfo.comparativo.valorAnterior.toFixed(2)} (${itensInfo.comparativo.totalItensAnterior} itens) -> Agora: R$ ${itensInfo.comparativo.valorNovo.toFixed(2)} (${itensInfo.comparativo.totalItensNovo} itens)`
-          : "";
-
-      await db.insert(fabricaHistoricoFluxo).values({
-        fabricaContaId: conta.id,
-        hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
-        setorOrigem: conta.setorAtual,
-        setorDestino: novoSetor,
-        acao: deveAvancarAuditoria ? "faturamento_concluido_banco" : "conta_sincronizada_banco",
-        usuarioId: usuario.id,
-        usuarioNome,
-        dataEntradaSetor: conta.entradaSetorAtualEm ? toMysqlDateTime(new Date(conta.entradaSetorAtualEm)) : nowStr,
-        dataSaidaSetor: nowStr,
-        duracaoSegundos: 0,
-        valorMovimentado: itensInfo.possuiItensBaixados ? novoValorStr : "0.00",
-        observacao: itensInfo.possuiItensBaixados
-          ? `Conta buscada no banco (${resultado.fonteDados === "BANCO_REMOTO" ? "Tempo Real" : "Base Sincronizada"}): ${itensInfo.totalItens} itens | R$ ${itensInfo.valorTotal.toFixed(2)} | Regras: ${itensInfo.statusAuditoriaRegras.toUpperCase()} (${itensInfo.totalDivergenciasRegras} divergência(s))${diffTexto}${deveAvancarAuditoria ? " | Encaminhada para Auditoria Interna." : ""}`
-          : `Cabeçalho sincronizado do banco do hospital (conta ainda sem itens baixados no ERP).`,
-      });
-
-      return {
-        sucesso: true,
-        fabricaContaId: conta.id,
-        numeroConta: cabecalho.numeroContaHospital,
-        fonteDados: resultado.fonteDados,
-        configSource: resultado.configSource,
-        possuiItensBaixados: itensInfo.possuiItensBaixados,
-        totalItens: itensInfo.totalItens,
-        valorTotal: itensInfo.valorTotal,
-        statusAuditoriaRegras: itensInfo.statusAuditoriaRegras,
-        totalDivergenciasRegras: itensInfo.totalDivergenciasRegras,
-        scoreRiscoAuditoria: itensInfo.scoreRiscoAuditoria,
-        comparativo: itensInfo.comparativo,
-        avancouParaAuditoriaInterna: deveAvancarAuditoria,
-        mensagem: !itensInfo.possuiItensBaixados
-          ? `Conta ${cabecalho.numeroContaHospital} localizada no banco do hospital, porém ainda sem itens cobrados/baixados.`
-          : deveAvancarAuditoria
-            ? `Conta ${cabecalho.numeroContaHospital} sincronizada com ${itensInfo.totalItens} itens (R$ ${itensInfo.valorTotal.toFixed(2)}) e encaminhada para Auditoria Interna!`
-            : `Conta ${cabecalho.numeroContaHospital} sincronizada do banco com ${itensInfo.totalItens} itens (R$ ${itensInfo.valorTotal.toFixed(2)})!`,
-      };
+      exigirEstadoBanco(conta);
+      if (!conta.numeroContaHospital) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Informe o número canônico da conta hospitalar." });
+      const snapshotsAntesRede = conta.contaConvenioResumoId ? await db.select().from(contasConvenioResumo).where(eq(contasConvenioResumo.id, conta.contaConvenioResumoId)) : [];
+      if (conta.contaConvenioResumoId && snapshotsAntesRede.length !== 1) throw new TRPCError({ code: "CONFLICT", message: "Snapshot ativo não encontrado." });
+      exigirEstadoBanco(conta, snapshotsAntesRede[0]);
+      const expectedSnapshotHash = hashBanco(snapshotsAntesRede[0] || null);
+      // Rede antes da transação. Estado, origem, identidade, versão e autorização são revalidados sob lock.
+      const remote = await executarBuscaContaBancoHospitalFabrica({ db, usuario, hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId, numeroContaInput: conta.numeroContaHospital });
+      const result = await sincronizarEsteiraBanco({ db, usuario, usuarioNome: ctx.user.name || `Usuário #${usuario.id}`,
+        contaId: conta.id, expectedVersion: input.expectedVersion, expectedSnapshotHash, idempotencyKey: input.idempotencyKey,
+        avancar: input.avancarParaAuditoriaInterna, colecao: remote.colecao });
+      return { ...result, configSource: remote.configSource };
     }),
 
   // ============================================================
@@ -2145,6 +1360,7 @@ export const fabricaFaturamentoRouter = router({
           r.diasEntreAltaERecebimento !== null ? Number(r.diasEntreAltaERecebimento) : null,
         diasNaSafatle: Number(r.diasNaSafatle) || 0,
         updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+        expectedVersion: versaoContaBanco(r),
         createdAt: r.created_at,
       }));
 
@@ -2208,7 +1424,7 @@ export const fabricaFaturamentoRouter = router({
         nomePaciente: row.nome_paciente, setorAtual: row.setor_atual, statusSetor: row.status_setor,
         faturistaId: row.faturista_id, faturistaNome: row.faturista_nome, auditorInternoNome: row.auditor_interno_nome,
         qtdRetrabalhos: Number(row.qtd_retrabalhos) || 0, ultimoMotivoRetorno: row.ultimo_motivo_retorno,
-        protocoloEnvioConvenio: row.protocolo_envio_convenio, historico, erros };
+        protocoloEnvioConvenio: row.protocolo_envio_convenio, contaConvenioResumoId: row.conta_convenio_resumo_id, expectedVersion: versaoContaBanco(row), historico, erros };
     }),
 
   // ============================================================

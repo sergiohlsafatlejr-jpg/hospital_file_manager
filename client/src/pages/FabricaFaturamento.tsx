@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import EsteiraAmbulatorialPanel from "@/components/EsteiraAmbulatorialPanel";
+import { FabricaBuscaBancoState } from "@/lib/fabricaBuscaBancoState";
 import { caminhoContaFabricaImportada, caminhoContaFabricaBancoCliente } from "@/lib/fabricaContaDestino";
 import { Database, Zap } from "lucide-react";
 import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica, resolverAbaFabrica, resolverSelecaoSetorFabrica } from "@/lib/fabricaSetoresVisiveis";
@@ -213,6 +214,8 @@ export default function FabricaFaturamento() {
   const [recConvenioNomeBanco, setRecConvenioNomeBanco] = useState<string>("");
   const [recSincronizarItensDoBanco, setRecSincronizarItensDoBanco] = useState<boolean>(true);
   const [previewBuscaBanco, setPreviewBuscaBanco] = useState<any | null>(null);
+  const buscaBancoState = useRef(new FabricaBuscaBancoState());
+  const tentativasSyncBanco = useRef(new Map<number, { version: string; key: string }>());
   const [recTipoAtendimento, setRecTipoAtendimento] = useState<
     "internacao" | "pronto_socorro" | "ambulatorio_sadt" | "hospital_dia" | "cirurgico"
   >("internacao");
@@ -223,6 +226,35 @@ export default function FabricaFaturamento() {
   const [recEncaminharDireto, setRecEncaminharDireto] = useState<boolean>(true);
   const [recFaturistaId, setRecFaturistaId] = useState<string>("fila_geral");
   const [manterDadosFixos, setManterDadosFixos] = useState<boolean>(true);
+
+  const invalidarBuscaBanco = () => {
+    buscaBancoState.current.invalidate();
+    setPreviewBuscaBanco(null);
+  };
+  const limparDadosDependentesRecepcao = () => {
+    setRecNomePaciente("");
+    setMostrarSugestoesPaciente(false);
+    setRecConvenioId("");
+    setRecConvenioNomeBanco("");
+    setRecNumeroAtendimento("");
+    setRecNumeroGuia("");
+    setRecDataEntrada("");
+    setRecDataAlta("");
+    setRecTipoAtendimento("internacao");
+    setRecObservacoes("");
+  };
+  const alterarHospitalRecepcao = (hospitalId: string) => {
+    invalidarBuscaBanco();
+    limparDadosDependentesRecepcao();
+    setRecNumeroContaHospital("");
+    setRecHospitalId(hospitalId);
+  };
+  const alterarNumeroContaRecepcao = (numeroConta: string) => {
+    invalidarBuscaBanco();
+    limparDadosDependentesRecepcao();
+    setRecNumeroContaHospital(numeroConta);
+  };
+  useEffect(() => () => buscaBancoState.current.invalidate(), []);
 
   // Modal de Importação de XML na Conta (Setor 2: Faturamento, Setor 3: Aud. Interna e Setor 5: Limpeza)
   const [modalXmlOpen, setModalXmlOpen] = useState(false);
@@ -373,6 +405,7 @@ export default function FabricaFaturamento() {
   const cadastrarMutation = trpc.fabricaFaturamento.cadastrarContaRecepcao.useMutation({
     onSuccess: (res) => {
       toast.success(res.mensagem);
+      invalidarBuscaBanco();
       setRecNomePaciente("");
       setMostrarSugestoesPaciente(false);
       setRecNumeroAtendimento("");
@@ -391,43 +424,15 @@ export default function FabricaFaturamento() {
   });
 
   const buscarContaBancoRecepcaoMutation =
-    trpc.fabricaFaturamento.buscarContaNoBancoHospital.useMutation({
-      onSuccess: (res) => {
-        if (!res.encontrada) {
-          setPreviewBuscaBanco(null);
-          toast.error(res.mensagem);
-          return;
-        }
-        setPreviewBuscaBanco(res);
-        const cab = res.cabecalho;
-        if (cab.nomePaciente) setRecNomePaciente(cab.nomePaciente);
-        if (cab.numeroContaHospital) setRecNumeroContaHospital(cab.numeroContaHospital);
-        if (cab.numeroAtendimento) setRecNumeroAtendimento(cab.numeroAtendimento);
-        if (cab.numeroGuia) setRecNumeroGuia(cab.numeroGuia);
-        else if (cab.numeroContaHospital && !recNumeroGuia) setRecNumeroGuia(cab.numeroContaHospital);
-        if (cab.convenioId) setRecConvenioId(String(cab.convenioId));
-        if (cab.convenioNome) setRecConvenioNomeBanco(cab.convenioNome);
-        if (cab.tipoAtendimento) setRecTipoAtendimento(cab.tipoAtendimento as any);
-        if (cab.dataEntrada) setRecDataEntrada(cab.dataEntrada);
-        if (cab.dataAlta) setRecDataAlta(cab.dataAlta);
-
-        if (res.itensInfo.possuiItensBaixados) {
-          toast.success(
-            `Conta #${cab.numeroContaHospital} localizada no banco com ${res.itensInfo.totalItens} itens baixados (R$ ${res.itensInfo.valorTotal.toFixed(2)})!`
-          );
-        } else {
-          toast.info(
-            `Cabeçalho da conta #${cab.numeroContaHospital} carregado do banco (sem itens baixados ainda — abrirá para faturamento).`
-          );
-        }
-      },
-      onError: (err) => toast.error(err.message),
-    });
+    trpc.fabricaFaturamento.buscarContaNoBancoHospital.useMutation();
 
   const sincronizarContaBancoEsteiraMutation =
     trpc.fabricaFaturamento.sincronizarContaDoBancoNaEsteira.useMutation({
       onSuccess: (res) => {
-        if (res.possuiItensBaixados) {
+        tentativasSyncBanco.current.delete(res.fabricaContaId);
+        if ("reconciliacaoRestrita" in res && res.reconciliacaoRestrita) {
+          toast.success(res.mensagem);
+        } else if ("possuiItensBaixados" in res && res.possuiItensBaixados) {
           toast.success(res.mensagem);
         } else {
           toast.warning(res.mensagem);
@@ -436,6 +441,24 @@ export default function FabricaFaturamento() {
       },
       onError: (err) => toast.error(err.message),
     });
+
+  const sincronizarContaBanco = (conta: { id: number; expectedVersion?: string }) => {
+    if (!conta.expectedVersion || !/^[a-f0-9]{64}$/.test(conta.expectedVersion)) {
+      toast.error("Atualize a Esteira para obter a revisão vigente antes de sincronizar.");
+      return;
+    }
+    const anterior = tentativasSyncBanco.current.get(conta.id);
+    const tentativa = anterior?.version === conta.expectedVersion
+      ? anterior
+      : { version: conta.expectedVersion, key: crypto.randomUUID() };
+    tentativasSyncBanco.current.set(conta.id, tentativa);
+    sincronizarContaBancoEsteiraMutation.mutate({
+      fabricaContaId: conta.id,
+      expectedVersion: tentativa.version,
+      idempotencyKey: tentativa.key,
+      avancarParaAuditoriaInterna: false,
+    });
+  };
 
   const handleBuscarContaNoBancoRecepcao = () => {
     if (!recHospitalId) {
@@ -447,9 +470,39 @@ export default function FabricaFaturamento() {
       toast.error("Digite o Nº da Conta do Hospital para buscar.");
       return;
     }
+    const ticket = buscaBancoState.current.begin(Number(recHospitalId), num);
+    setPreviewBuscaBanco(null);
+    limparDadosDependentesRecepcao();
     buscarContaBancoRecepcaoMutation.mutate({
       hospitalEstabelecimentoId: Number(recHospitalId),
       numeroConta: num,
+    }, {
+      onSuccess: (res) => {
+        if (!buscaBancoState.current.consume(ticket)) return;
+        limparDadosDependentesRecepcao();
+        if (!res.encontrada || !res.cabecalho) {
+          toast.error(res.mensagem);
+          return;
+        }
+        const cab = res.cabecalho;
+        setPreviewBuscaBanco(res);
+        setRecNomePaciente(cab.nomePaciente || "");
+        setRecNumeroContaHospital(cab.numeroContaHospital || "");
+        setRecNumeroAtendimento(cab.numeroAtendimento || "");
+        setRecNumeroGuia(cab.numeroGuia || "");
+        setRecConvenioId(cab.convenioId ? String(cab.convenioId) : "");
+        setRecConvenioNomeBanco(cab.convenioNome || "");
+        setRecTipoAtendimento(cab.tipoAtendimento || "internacao");
+        setRecDataEntrada(cab.dataEntrada || "");
+        setRecDataAlta(cab.dataAlta || "");
+        setMostrarSugestoesPaciente(false);
+        toast.success(res.mensagem);
+      },
+      onError: (err) => {
+        if (!buscaBancoState.current.consume(ticket)) return;
+        setPreviewBuscaBanco(null);
+        toast.error(err.message);
+      },
     });
   };
 
@@ -571,6 +624,10 @@ export default function FabricaFaturamento() {
 
   const handleCadastrarRecepcao = (e: React.FormEvent) => {
     e.preventDefault();
+    if (buscarContaBancoRecepcaoMutation.isPending) {
+      toast.error("Aguarde o resultado da busca antes de cadastrar a conta.");
+      return;
+    }
     if (!recHospitalId) {
       toast.error("Selecione o Hospital (Estabelecimento) de origem da conta.");
       return;
@@ -579,6 +636,7 @@ export default function FabricaFaturamento() {
       toast.error("Informe o nome do paciente.");
       return;
     }
+    invalidarBuscaBanco();
     cadastrarMutation.mutate({
       hospitalEstabelecimentoId: Number(recHospitalId),
       convenioId: recConvenioId && recConvenioId !== "nenhum" ? Number(recConvenioId) : null,
@@ -1038,10 +1096,7 @@ export default function FabricaFaturamento() {
                         <Label className="text-xs font-medium">1º Hospital (Estabelecimento) *</Label>
                         <Select
                           value={recHospitalId}
-                          onValueChange={(val) => {
-                            setRecHospitalId(val);
-                            setPreviewBuscaBanco(null);
-                          }}
+                          onValueChange={alterarHospitalRecepcao}
                         >
                           <SelectTrigger className="bg-background h-9">
                             <SelectValue placeholder="Selecione o hospital..." />
@@ -1063,7 +1118,7 @@ export default function FabricaFaturamento() {
                         <Label className="text-xs font-medium">2º Nº da Conta no Hospital</Label>
                         <Input
                           value={recNumeroContaHospital}
-                          onChange={(e) => setRecNumeroContaHospital(e.target.value)}
+                          onChange={(e) => alterarNumeroContaRecepcao(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -1134,7 +1189,7 @@ export default function FabricaFaturamento() {
                         {previewBuscaBanco.itensInfo?.possuiItensBaixados ? (
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-emerald-200/70">
                             <span>
-                              O hospital já possui itens cobrados nesta conta. Ao cadastrar, os itens já serão importados e pré-auditados pelo Motor de Regras para o faturista revisar.
+                              O hospital já possui itens nesta conta. Ao cadastrar, será gravada uma versão para revisão; ausência de comparação completa mantém a auditoria pendente.
                             </span>
                             <label className="flex items-center gap-1.5 font-medium cursor-pointer shrink-0">
                               <input
@@ -1166,7 +1221,7 @@ export default function FabricaFaturamento() {
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Hospital (Estabelecimento) *</Label>
-                      <Select value={recHospitalId} onValueChange={setRecHospitalId}>
+                      <Select value={recHospitalId} onValueChange={alterarHospitalRecepcao}>
                         <SelectTrigger>
                           <SelectValue placeholder="Selecione o hospital de origem..." />
                         </SelectTrigger>
@@ -1184,7 +1239,7 @@ export default function FabricaFaturamento() {
 
                     <div className="space-y-2">
                       <Label>Convênio (Plano de Saúde)</Label>
-                      <Select value={recConvenioId} onValueChange={setRecConvenioId}>
+                      <Select value={recConvenioId} onValueChange={(value) => { invalidarBuscaBanco(); setRecConvenioId(value); setRecConvenioNomeBanco(""); }}>
                         <SelectTrigger>
                           <SelectValue placeholder="Selecione o convênio..." />
                         </SelectTrigger>
@@ -1218,6 +1273,7 @@ export default function FabricaFaturamento() {
                       <Input
                         value={recNomePaciente}
                         onChange={(e) => {
+                          invalidarBuscaBanco();
                           setRecNomePaciente(e.target.value);
                           setMostrarSugestoesPaciente(true);
                         }}
@@ -1247,6 +1303,9 @@ export default function FabricaFaturamento() {
                                 type="button"
                                 className="w-full text-left px-3 py-2 hover:bg-primary/10 transition-colors flex items-center justify-between gap-2"
                                 onClick={() => {
+                                  invalidarBuscaBanco();
+                                  limparDadosDependentesRecepcao();
+                                  setRecNumeroContaHospital("");
                                   setRecNomePaciente(sug.nomePaciente);
                                   if (sug.hospitalEstabelecimentoId) {
                                     setRecHospitalId(String(sug.hospitalEstabelecimentoId));
@@ -1257,9 +1316,7 @@ export default function FabricaFaturamento() {
                                   if (sug.tipoAtendimento) {
                                     setRecTipoAtendimento(sug.tipoAtendimento);
                                   }
-                                  if (sug.numeroAtendimento && !recNumeroAtendimento) {
-                                    setRecNumeroAtendimento(sug.numeroAtendimento);
-                                  }
+                                  setRecNumeroAtendimento(sug.numeroAtendimento || "");
                                   setMostrarSugestoesPaciente(false);
                                   toast.success(
                                     `Dados de ${sug.nomePaciente} preenchidos automaticamente!`
@@ -1287,7 +1344,7 @@ export default function FabricaFaturamento() {
                       <Label>Tipo de Atendimento *</Label>
                       <Select
                         value={recTipoAtendimento}
-                        onValueChange={(v: any) => setRecTipoAtendimento(v)}
+                        onValueChange={(v: any) => { invalidarBuscaBanco(); setRecTipoAtendimento(v); }}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -1308,7 +1365,7 @@ export default function FabricaFaturamento() {
                       <Label>Nº do Atendimento / Prontuário no Hospital</Label>
                       <Input
                         value={recNumeroAtendimento}
-                        onChange={(e) => setRecNumeroAtendimento(e.target.value)}
+                        onChange={(e) => { invalidarBuscaBanco(); setRecNumeroAtendimento(e.target.value); }}
                         placeholder="Ex: 1049281"
                       />
                     </div>
@@ -1316,7 +1373,7 @@ export default function FabricaFaturamento() {
                       <Label>Nº da Guia / Conta (se já houver)</Label>
                       <Input
                         value={recNumeroGuia}
-                        onChange={(e) => setRecNumeroGuia(e.target.value)}
+                        onChange={(e) => { invalidarBuscaBanco(); setRecNumeroGuia(e.target.value); }}
                         placeholder="Opcional (será preenchido pelo XML)"
                       />
                     </div>
@@ -1328,7 +1385,7 @@ export default function FabricaFaturamento() {
                       <Input
                         type="date"
                         value={recDataEntrada}
-                        onChange={(e) => setRecDataEntrada(e.target.value)}
+                        onChange={(e) => { invalidarBuscaBanco(); setRecDataEntrada(e.target.value); }}
                         required
                       />
                     </div>
@@ -1337,7 +1394,7 @@ export default function FabricaFaturamento() {
                       <Input
                         type="date"
                         value={recDataAlta}
-                        onChange={(e) => setRecDataAlta(e.target.value)}
+                        onChange={(e) => { invalidarBuscaBanco(); setRecDataAlta(e.target.value); }}
                       />
                     </div>
                     <div className="space-y-2">
@@ -2051,7 +2108,7 @@ export default function FabricaFaturamento() {
                                       <AlertTriangle className="h-3 w-3 mr-1" />
                                       {conta.totalDivergenciasRegras} divergência(s) na regra
                                     </Badge>
-                                  ) : (
+                                  ) : conta.statusAuditoriaRegras === "conforme" ? (
                                     <Badge
                                       variant="outline"
                                       className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]"
@@ -2059,11 +2116,21 @@ export default function FabricaFaturamento() {
                                       <CheckCircle2 className="h-3 w-3 mr-1" />
                                       Conforme nas Regras
                                     </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]"
+                                    >
+                                      <AlertTriangle className="h-3 w-3 mr-1" />
+                                      Comparação pendente/incompleta
+                                    </Badge>
                                   )}
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground italic">
-                                  Aguardando Busca no Banco / XML
+                                  {conta.contaConvenioResumoId > 0 && !(conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId)
+                                    ? "Banco: snapshot vazio — comparação pendente"
+                                    : "Aguardando Busca no Banco / XML"}
                                 </span>
                               )}
                             </TableCell>
@@ -2133,18 +2200,32 @@ export default function FabricaFaturamento() {
                                       size="sm"
                                       variant="outline"
                                       disabled={sincronizarContaBancoEsteiraMutation.isPending}
-                                      onClick={() =>
-                                        sincronizarContaBancoEsteiraMutation.mutate({
-                                          fabricaContaId: conta.id,
-                                          avancarParaAuditoriaInterna: false,
-                                        })
-                                      }
+                                      onClick={() => sincronizarContaBanco(conta)}
                                       className="h-8 gap-1 text-xs border-indigo-300 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100"
                                       title="Busca ou atualiza os itens da conta diretamente no banco de dados do hospital (sem precisar exportar XML)"
                                     >
                                       <Zap className="h-3.5 w-3.5" />
                                       {conta.totalItensXml > 0 ? "Atualizar do Banco" : "Buscar Conta no Banco"}
                                     </Button>
+                                    {conta.totalItensXml === 0 && conta.contaConvenioResumoId > 0 &&
+                                      !(conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId) &&
+                                      (conta.numeroContaHospital || conta.numeroGuia) && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => setLocation(caminhoContaFabricaBancoCliente({
+                                            estabelecimentoId: conta.hospitalEstabelecimentoId,
+                                            numeroConta: conta.numeroContaHospital || conta.numeroGuia,
+                                            fabricaContaId: conta.id,
+                                            resumoId: conta.contaConvenioResumoId,
+                                          }))}
+                                          className="h-8 gap-1 text-xs"
+                                          title="Consultar a coleção vazia confirmada, sem considerar a comparação conforme"
+                                        >
+                                          <Eye className="h-3.5 w-3.5" />
+                                          Ver snapshot vazio
+                                        </Button>
+                                      )}
                                     {conta.totalItensXml > 0 && (conta.numeroContaHospital || conta.numeroGuia) && (
                                       <>
                                         <Button
@@ -2174,6 +2255,7 @@ export default function FabricaFaturamento() {
                                                   estabelecimentoId: conta.hospitalEstabelecimentoId,
                                                   numeroConta: numRef,
                                                   fabricaContaId: conta.id,
+                                                  resumoId: conta.contaConvenioResumoId,
                                                 })
                                               );
                                             }
@@ -2241,12 +2323,7 @@ export default function FabricaFaturamento() {
                                       size="sm"
                                       variant="outline"
                                       disabled={sincronizarContaBancoEsteiraMutation.isPending}
-                                      onClick={() =>
-                                        sincronizarContaBancoEsteiraMutation.mutate({
-                                          fabricaContaId: conta.id,
-                                          avancarParaAuditoriaInterna: false,
-                                        })
-                                      }
+                                      onClick={() => sincronizarContaBanco(conta)}
                                       className="h-8 gap-1 text-xs border-indigo-300 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100"
                                       title="Reimportar itens diretamente do banco do hospital para conferir se os ajustes foram realizados"
                                     >
@@ -2263,6 +2340,7 @@ export default function FabricaFaturamento() {
                                               estabelecimentoId: conta.hospitalEstabelecimentoId,
                                               numeroConta: conta.numeroContaHospital || conta.numeroGuia,
                                               fabricaContaId: conta.id,
+                                              resumoId: conta.contaConvenioResumoId,
                                             })
                                           )
                                         }

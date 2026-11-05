@@ -1067,8 +1067,9 @@ function ContasReceber() {
   });
 
   const gerarBoleto = trpc.financeiro.recebiveis.gerarBoleto.useMutation({
-    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Boleto gerado com sucesso!"); setBoletoDialogOpen(false); setBoletoItem(null); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: (data) => { utils.financeiro.invalidate(); toast.success(data.message); setBoletoDialogOpen(false); setBoletoItem(null); },
+    onError: (e) => { utils.financeiro.invalidate(); toast.error(e.message); },
+    retry: false,
   });
   const baixarBoleto = trpc.financeiro.recebiveis.baixarBoleto.useMutation({
     onSuccess: (data: any) => {
@@ -1098,6 +1099,28 @@ function ContasReceber() {
     onSuccess: () => { toast.success("E-mail disparado com a Nota Fiscal isolada!"); utils.financeiro.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+
+  const selecionarNotaFiscal = (recebivel: any) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/pdf";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024 || (file.type && file.type !== "application/pdf")) {
+        toast.error("Selecione um PDF de até 10 MiB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => toast.error("Não foi possível ler o PDF.");
+      reader.onload = () => {
+        const base64File = String(reader.result).split(",")[1];
+        anexarNF.mutate({ recebivelId: recebivel.id, expectedKey: recebivel.notaFiscalKey ?? null, base64File, fileName: file.name });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
 
   const rawItems = lista.data?.items || [];
 
@@ -1371,18 +1394,20 @@ function ContasReceber() {
                       {r.recebido === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarRecebido.mutate({ id: r.id, estabelecimentoId })}><Check className="h-3 w-3 mr-1" /> Receber</Button>}
                       {r.notaFiscalKey ? (
                          <>
-                           <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 mr-1 cursor-pointer" onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/pdf'; input.onchange = (e: any) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (re) => { const base64Data = (re.target?.result as string).split(',')[1]; anexarNF.mutate({ recebivelId: r.id, base64File: base64Data, fileName: file.name }); }; reader.readAsDataURL(file); } }; input.click(); }} title="Clique para Substituir a NF atual por uma nova.">📄 Alterar NF</Button>
-                           {!r.boletoSolicitacaoId && (
+                           <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 mr-1 cursor-pointer" onClick={() => selecionarNotaFiscal(r)} title="Substituir NF com controle de versão" disabled={anexarNF.isPending}>📄 Alterar NF</Button>
+                           {!r.boletoSolicitacaoId && r.boletoStatus !== "reconciliation" && (
                              <Button size="sm" variant="outline" className={`h-7 text-xs mr-1 ${r.emailEnviado === 'sim' ? 'text-teal-700 border-teal-300 bg-teal-50 hover:bg-teal-100' : 'text-blue-600 border-blue-300 hover:bg-blue-50'}`} onClick={() => { const clienteRef = r.clienteId ? clientes.data?.find((c: any) => c.id === r.clienteId) : null; const mail = window.prompt("Enviar Nota Fiscal para qual e-mail?", clienteRef?.email || ""); if (mail) enviarEmailNF.mutate({ recebivelId: r.id, email: mail }); }} title={r.emailEnviado === 'sim' ? "E-mail já enviado. Clique para reenviar." : "Enviar NF Isolada para o Cliente"} disabled={enviarEmailNF.isPending}>{r.emailEnviado === 'sim' ? <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/></svg>} {r.emailEnviado === 'sim' ? 'Enviado' : 'E-mail NF'}</Button>
                            )}
                          </>
                       ) : (
-                         <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-500 hover:text-orange-600 mr-1" onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/pdf'; input.onchange = (e: any) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (re) => { const base64Data = (re.target?.result as string).split(',')[1]; anexarNF.mutate({ recebivelId: r.id, base64File: base64Data, fileName: file.name }); }; reader.readAsDataURL(file); } }; input.click(); }} title="Anexar Nota Fiscal PDF" disabled={anexarNF.isPending}>📎 + NF</Button>
+                         <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-500 hover:text-orange-600 mr-1" onClick={() => selecionarNotaFiscal(r)} title="Anexar Nota Fiscal PDF" disabled={anexarNF.isPending}>📎 + NF</Button>
                       )}
-                      {r.boletoSolicitacaoId ? (
+                      {r.boletoStatus === "reconciliation" ? (
+                        <span className="text-xs text-amber-700" role="status">Emissão reservada/incerta — solicitar reconciliação, não reemitir</span>
+                      ) : r.boletoSolicitacaoId ? (
                         <>
                           <Button size="sm" variant="outline" className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50 mr-1" onClick={() => baixarBoleto.mutate({ recebivelId: r.id })} title="Baixar Boleto PDF" disabled={baixarBoleto.isPending}><Download className="h-3 w-3 mr-1" /> Boleto</Button>
-                          <Button size="sm" variant="outline" className={`h-7 text-xs ${r.emailEnviado === 'sim' ? 'text-teal-700 border-teal-300 bg-teal-50 hover:bg-teal-100' : 'text-blue-600 border-blue-300 hover:bg-blue-50'}`} onClick={() => { const clienteRef = r.clienteId ? clientes.data?.find((c: any) => c.id === r.clienteId) : null; const mail = window.prompt(r.notaFiscalKey ? "Confirme o e-mail do cliente para enviar o Boleto + Nota Fiscal:" : "Confirme o e-mail do cliente para enviar o boleto:", clienteRef?.email || ""); if (mail) enviarEmail.mutate({ recebivelId: r.id, email: mail }); }} title={r.emailEnviado === 'sim' ? "E-mail já enviado. Clique para reenviar." : "Enviar por E-mail"} disabled={enviarEmail.isPending}>{r.emailEnviado === 'sim' ? <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>} {r.emailEnviado === 'sim' ? 'Enviado' : 'E-mail'}</Button>
+                          <Button size="sm" variant="outline" className={`h-7 text-xs ${r.emailEnviado === 'sim' ? 'text-teal-700 border-teal-300 bg-teal-50 hover:bg-teal-100' : 'text-blue-600 border-blue-300 hover:bg-blue-50'}`} onClick={() => { const clienteRef = r.clienteId ? clientes.data?.find((c: any) => c.id === r.clienteId) : null; const mail = window.prompt(r.notaFiscalKey ? "Confirme o e-mail do cliente para enviar o Boleto + Nota Fiscal:" : "Confirme o e-mail do cliente para enviar o boleto:", clienteRef?.email || ""); if (mail) enviarEmail.mutate({ recebivelId: r.id, email: mail }); }} title={r.emailEnviado === 'sim' ? "E-mail já enviado. Clique para reenviar." : "Enviar por E-mail"} disabled={enviarEmail.isPending || !r.notaFiscalKey}>{r.emailEnviado === 'sim' ? <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>} {r.emailEnviado === 'sim' ? 'Reenviar boleto + NF' : 'Enviar boleto + NF'}</Button>
                         </>
                       ) : (
                         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setBoletoItem(r); setBoletoDialogOpen(true); }} title="Gerar Boleto Inter" disabled={gerarBoleto.isPending}><Banknote className="h-3 w-3 mr-1" /> Gerar Boleto</Button>
@@ -1445,7 +1470,7 @@ function ContasReceber() {
           <DialogHeader>
             <DialogTitle>Gerar Boleto Banco Inter</DialogTitle>
             <DialogDescription>
-              Preencha os dados do pagador para emitir o boleto no valor de {boletoItem?.valor ? formatCurrency(boletoItem.valor) : ""}.
+              Preencha os dados do pagador para emitir o boleto no valor de {boletoItem?.valor ? formatCurrency(boletoItem.valor) : ""}. Esta etapa confirma apenas a emissão. Após a confirmação, confira/anexe a NF e use o botão Enviar boleto + NF. Nenhum e-mail será enviado automaticamente.
             </DialogDescription>
           </DialogHeader>
           {boletoItem && (() => {
@@ -1477,7 +1502,7 @@ function ContasReceber() {
                   <div><Label>Cidade *</Label><Input name="cidade" defaultValue={clienteAtrelado?.cidade || ""} required /></div>
                   <div><Label>UF *</Label><Input name="uf" defaultValue={clienteAtrelado?.uf || ""} required maxLength={2} /></div>
                 </div>
-                <div><Label>Email</Label><Input name="email" type="email" defaultValue={clienteAtrelado?.email || ""} placeholder="Para enviar via e-mail (opcional)" /></div>
+                <div><Label>Email</Label><Input name="email" type="email" defaultValue={clienteAtrelado?.email || ""} placeholder="Contato do pagador (não envia automaticamente)" /></div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setBoletoDialogOpen(false)}>Cancelar</Button>
                   <Button type="submit" disabled={gerarBoleto.isPending}>{gerarBoleto.isPending ? "Emitindo..." : "Emitir Boleto"}</Button>
@@ -3057,8 +3082,8 @@ function BancoInterView() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEmitirOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={emitirBoletoAvulso.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                {emitirBoletoAvulso.isPending ? "Emitindo no Banco Inter..." : "Emitir Boleto + PIX"}
+              <Button type="submit" disabled title="Emissão avulsa bloqueada: use Contas a Receber com reserva durável" className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                Emissão avulsa bloqueada — use Contas a Receber
               </Button>
             </DialogFooter>
           </form>

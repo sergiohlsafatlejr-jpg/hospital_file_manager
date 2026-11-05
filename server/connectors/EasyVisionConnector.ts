@@ -1,5 +1,6 @@
 import pg from "pg";
 import { logger } from "../_core/logger";
+import { compileReadOnlyAccountQuery } from "./sqlQuerySafety";
 
 const { Pool } = pg;
 
@@ -147,6 +148,39 @@ export class EasyVisionConnector {
       await this.pool.end();
       this.pool = null;
       logger.info({ message: "Conexão EASYVISION fechada" });
+    }
+  }
+
+  /** Account-only path on an exclusively checked-out client; legacy methods unchanged. */
+  async executarQuerySomenteLeitura<T = any>(query: string, params: unknown[]): Promise<T[]> {
+    const compiled = compileReadOnlyAccountQuery(query, params, "postgres");
+    if (!this.pool) throw new Error("Conexão EASYVISION não estabelecida.");
+    let client: pg.PoolClient;
+    try {
+      client = await this.pool.connect();
+    } catch {
+      logger.error({ message: "Falha ao obter conexão EASYVISION somente leitura" });
+      throw new Error("Falha ao executar consulta EASYVISION somente leitura.");
+    }
+    try {
+      await client.query("BEGIN READ ONLY");
+      await client.query("SET LOCAL statement_timeout = 300000");
+      const result = await client.query(compiled.sql, compiled.values);
+      return result.rows as T[];
+    } catch {
+      logger.error({ message: "Falha na consulta EASYVISION somente leitura" });
+      throw new Error("Falha ao executar consulta EASYVISION somente leitura.");
+    } finally {
+      let destroy = false;
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        destroy = true;
+        logger.error({ message: "Falha ao encerrar transação EASYVISION somente leitura" });
+        throw new Error("Falha ao encerrar consulta EASYVISION somente leitura.");
+      } finally {
+        client.release(destroy);
+      }
     }
   }
 

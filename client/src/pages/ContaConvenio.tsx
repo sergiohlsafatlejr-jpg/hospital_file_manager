@@ -414,6 +414,12 @@ export default function ContaConvenio() {
       estabelecimentoId: String(hospitalOrigemId),
       sourceHospitalId: String(hospitalOrigemId),
     });
+    if (!isWarleine && conta.origem === "BANCO_CLIENTE") {
+      params.set("origem", "BANCO_CLIENTE");
+      params.set("resumoId", String(conta.id));
+    } else if (!isWarleine && conta.origem === "XML") {
+      params.set("origem", "XML");
+    }
     if (conta.numeroLote) {
       params.set('numeroLote', conta.numeroLote);
     }
