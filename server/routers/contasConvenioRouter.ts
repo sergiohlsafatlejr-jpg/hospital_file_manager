@@ -454,8 +454,14 @@ export const contasConvenioRouter = router({
           resumoCodConvInicial ? String(resumoCodConvInicial) : null,
         );
 
-        for (let i = 0; i < dados.length; i += BATCH_SIZE) {
-          const batch = dados.slice(i, i + BATCH_SIZE);
+        const linhasComItem = dados.filter((row: any) => {
+          const cod = getField(row, 'codigoitem', 'procdisco', 'cod_item', 'cd_item', 'codigo_item', 'codigoitemtuss', 'codproprio', 'cod_tuss', 'codigo_tuss', 'cd_item_tuss');
+          const desc = getField(row, 'descricao', 'desc_item', 'ds_item');
+          const vt = parseNum(getField(row, 'valortotal', 'vl_faturado', 'valor_total', 'vlfaturado', 'valor_faturado', 'vl_produzido'));
+          return Boolean(cod || desc || vt > 0);
+        });
+        for (let i = 0; i < linhasComItem.length; i += BATCH_SIZE) {
+          const batch = linhasComItem.slice(i, i + BATCH_SIZE);
           const values = batch.map((row: any) => {
             // Flexibilizar nomes de campos - aceita tanto aliases quanto nomes originais do banco
             const vlUnitario = getField(row, 'valorunitario', 'vl_unitario', 'valor_unitario', 'vlunitario', 'vl_medico');

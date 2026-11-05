@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import EsteiraAmbulatorialPanel from "@/components/EsteiraAmbulatorialPanel";
-import { caminhoContaFabricaImportada } from "@/lib/fabricaContaDestino";
+import { caminhoContaFabricaImportada, caminhoContaFabricaBancoCliente } from "@/lib/fabricaContaDestino";
+import { Database, Zap } from "lucide-react";
 import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica, resolverAbaFabrica, resolverSelecaoSetorFabrica } from "@/lib/fabricaSetoresVisiveis";
 import type { SetorConsultaFabrica } from "@shared/fabricaSetores";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -208,6 +209,10 @@ export default function FabricaFaturamento() {
   const [mostrarSugestoesPaciente, setMostrarSugestoesPaciente] = useState<boolean>(false);
   const [recNumeroAtendimento, setRecNumeroAtendimento] = useState<string>("");
   const [recNumeroGuia, setRecNumeroGuia] = useState<string>("");
+  const [recNumeroContaHospital, setRecNumeroContaHospital] = useState<string>("");
+  const [recConvenioNomeBanco, setRecConvenioNomeBanco] = useState<string>("");
+  const [recSincronizarItensDoBanco, setRecSincronizarItensDoBanco] = useState<boolean>(true);
+  const [previewBuscaBanco, setPreviewBuscaBanco] = useState<any | null>(null);
   const [recTipoAtendimento, setRecTipoAtendimento] = useState<
     "internacao" | "pronto_socorro" | "ambulatorio_sadt" | "hospital_dia" | "cirurgico"
   >("internacao");
@@ -372,6 +377,9 @@ export default function FabricaFaturamento() {
       setMostrarSugestoesPaciente(false);
       setRecNumeroAtendimento("");
       setRecNumeroGuia("");
+      setRecNumeroContaHospital("");
+      setRecConvenioNomeBanco("");
+      setPreviewBuscaBanco(null);
       setRecObservacoes("");
       if (!manterDadosFixos) {
         setRecHospitalId("");
@@ -381,6 +389,69 @@ export default function FabricaFaturamento() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const buscarContaBancoRecepcaoMutation =
+    trpc.fabricaFaturamento.buscarContaNoBancoHospital.useMutation({
+      onSuccess: (res) => {
+        if (!res.encontrada) {
+          setPreviewBuscaBanco(null);
+          toast.error(res.mensagem);
+          return;
+        }
+        setPreviewBuscaBanco(res);
+        const cab = res.cabecalho;
+        if (cab.nomePaciente) setRecNomePaciente(cab.nomePaciente);
+        if (cab.numeroContaHospital) setRecNumeroContaHospital(cab.numeroContaHospital);
+        if (cab.numeroAtendimento) setRecNumeroAtendimento(cab.numeroAtendimento);
+        if (cab.numeroGuia) setRecNumeroGuia(cab.numeroGuia);
+        else if (cab.numeroContaHospital && !recNumeroGuia) setRecNumeroGuia(cab.numeroContaHospital);
+        if (cab.convenioId) setRecConvenioId(String(cab.convenioId));
+        if (cab.convenioNome) setRecConvenioNomeBanco(cab.convenioNome);
+        if (cab.tipoAtendimento) setRecTipoAtendimento(cab.tipoAtendimento as any);
+        if (cab.dataEntrada) setRecDataEntrada(cab.dataEntrada);
+        if (cab.dataAlta) setRecDataAlta(cab.dataAlta);
+
+        if (res.itensInfo.possuiItensBaixados) {
+          toast.success(
+            `Conta #${cab.numeroContaHospital} localizada no banco com ${res.itensInfo.totalItens} itens baixados (R$ ${res.itensInfo.valorTotal.toFixed(2)})!`
+          );
+        } else {
+          toast.info(
+            `Cabeçalho da conta #${cab.numeroContaHospital} carregado do banco (sem itens baixados ainda — abrirá para faturamento).`
+          );
+        }
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
+  const sincronizarContaBancoEsteiraMutation =
+    trpc.fabricaFaturamento.sincronizarContaDoBancoNaEsteira.useMutation({
+      onSuccess: (res) => {
+        if (res.possuiItensBaixados) {
+          toast.success(res.mensagem);
+        } else {
+          toast.warning(res.mensagem);
+        }
+        recarregarTudo();
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
+  const handleBuscarContaNoBancoRecepcao = () => {
+    if (!recHospitalId) {
+      toast.error("Selecione primeiro o Hospital (Estabelecimento) para buscar a conta no banco.");
+      return;
+    }
+    const num = (recNumeroContaHospital || recNumeroGuia || recNumeroAtendimento).trim();
+    if (!num) {
+      toast.error("Digite o Nº da Conta do Hospital para buscar.");
+      return;
+    }
+    buscarContaBancoRecepcaoMutation.mutate({
+      hospitalEstabelecimentoId: Number(recHospitalId),
+      numeroConta: num,
+    });
+  };
 
   const assumirMutation = trpc.fabricaFaturamento.assumirConta.useMutation({
     onSuccess: (res) => {
@@ -511,6 +582,9 @@ export default function FabricaFaturamento() {
     cadastrarMutation.mutate({
       hospitalEstabelecimentoId: Number(recHospitalId),
       convenioId: recConvenioId && recConvenioId !== "nenhum" ? Number(recConvenioId) : null,
+      convenioNome: recConvenioNomeBanco || null,
+      numeroContaHospital: recNumeroContaHospital || recNumeroGuia || null,
+      sincronizarItensDoBanco: recSincronizarItensDoBanco,
       numeroAtendimento: recNumeroAtendimento || null,
       numeroGuia: recNumeroGuia || null,
       nomePaciente: recNomePaciente,
@@ -938,6 +1012,157 @@ export default function FabricaFaturamento() {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleCadastrarRecepcao} className="space-y-4">
+                  {/* Barra de Busca Direta no Sistema do Hospital pelo Nº da Conta */}
+                  <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/80 via-blue-50/50 to-emerald-50/40 dark:from-indigo-950/30 dark:to-emerald-950/20 p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                          <Database className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                            Busca Direta no Banco do Hospital (Integrador de Dados)
+                            <Badge variant="outline" className="bg-indigo-100 text-indigo-800 border-indigo-300 text-[10px]">
+                              Por Nº da Conta
+                            </Badge>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Digite o Nº da Conta para puxar Paciente, Convênio, Atendimento, Datas e Itens (se o hospital já tiver baixas de farmácia/setores).
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid sm:grid-cols-12 gap-2.5 items-end">
+                      <div className="sm:col-span-5 space-y-1">
+                        <Label className="text-xs font-medium">1º Hospital (Estabelecimento) *</Label>
+                        <Select
+                          value={recHospitalId}
+                          onValueChange={(val) => {
+                            setRecHospitalId(val);
+                            setPreviewBuscaBanco(null);
+                          }}
+                        >
+                          <SelectTrigger className="bg-background h-9">
+                            <SelectValue placeholder="Selecione o hospital..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {hospitais
+                              .filter((h: any) => h.id !== 2160001)
+                              .map((h: any) => (
+                                <SelectItem key={h.id} value={String(h.id)}>
+                                  {h.nome}
+                                  {h.possuiBuscaDiretaBanco ? " ⚡ (Integrado)" : ""}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="sm:col-span-4 space-y-1">
+                        <Label className="text-xs font-medium">2º Nº da Conta no Hospital</Label>
+                        <Input
+                          value={recNumeroContaHospital}
+                          onChange={(e) => setRecNumeroContaHospital(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleBuscarContaNoBancoRecepcao();
+                            }
+                          }}
+                          placeholder="Ex: 584920"
+                          className="bg-background h-9 font-mono"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3">
+                        <Button
+                          type="button"
+                          onClick={handleBuscarContaNoBancoRecepcao}
+                          disabled={buscarContaBancoRecepcaoMutation.isPending}
+                          className="w-full h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                        >
+                          {buscarContaBancoRecepcaoMutation.isPending ? (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              Buscando...
+                            </>
+                          ) : (
+                            <>
+                              <Search className="h-3.5 w-3.5" />
+                              Buscar Conta
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {previewBuscaBanco && (
+                      <div
+                        className={`rounded-lg border p-3 text-xs space-y-2 ${
+                          previewBuscaBanco.itensInfo?.possuiItensBaixados
+                            ? "bg-emerald-50/90 border-emerald-300 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100"
+                            : "bg-amber-50/90 border-amber-300 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-semibold flex items-center gap-1.5">
+                            {previewBuscaBanco.itensInfo?.possuiItensBaixados ? (
+                              <>
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                <span>
+                                  Conta #{previewBuscaBanco.cabecalho?.numeroContaHospital} com{" "}
+                                  <strong>{previewBuscaBanco.itensInfo.totalItens} itens baixados</strong> (
+                                  {formatCurrency(previewBuscaBanco.itensInfo.valorTotal)})
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-4 w-4 text-amber-600 shrink-0" />
+                                <span>
+                                  Conta #{previewBuscaBanco.cabecalho?.numeroContaHospital} localizada apenas com{" "}
+                                  <strong>cabeçalho (sem itens baixados ainda)</strong>
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="text-[10px] bg-white/80">
+                            Fonte: {previewBuscaBanco.configSource}
+                          </Badge>
+                        </div>
+
+                        {previewBuscaBanco.itensInfo?.possuiItensBaixados ? (
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-emerald-200/70">
+                            <span>
+                              O hospital já possui itens cobrados nesta conta. Ao cadastrar, os itens já serão importados e pré-auditados pelo Motor de Regras para o faturista revisar.
+                            </span>
+                            <label className="flex items-center gap-1.5 font-medium cursor-pointer shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={recSincronizarItensDoBanco}
+                                onChange={(e) => setRecSincronizarItensDoBanco(e.target.checked)}
+                                className="h-3.5 w-3.5 rounded"
+                              />
+                              Já importar os {previewBuscaBanco.itensInfo.totalItens} itens na abertura
+                            </label>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] opacity-90">
+                            Como o sistema do hospital ainda não possui as baixas de farmácia/setores para esta conta, ela será aberta no{" "}
+                            <strong>Setor 2 (Faturamento)</strong> com os dados do paciente preenchidos para lançamento no ERP.
+                          </p>
+                        )}
+
+                        {previewBuscaBanco.contaExistenteNaEsteira && (
+                          <div className="rounded bg-red-100/90 border border-red-300 px-2.5 py-1.5 text-red-900 font-medium flex items-center gap-1.5">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-600" />
+                            Atenção: Esta conta já consta na Esteira (ID #{previewBuscaBanco.contaExistenteNaEsteira.id} — Setor:{" "}
+                            {previewBuscaBanco.contaExistenteNaEsteira.setorAtual}).
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Hospital (Estabelecimento) *</Label>
@@ -1776,6 +2001,15 @@ export default function FabricaFaturamento() {
                               {conta.totalItensXml > 0 ? (
                                 <div className="space-y-1 text-xs">
                                   <div className="font-semibold text-foreground">
+                                    {!conta.arquivoXmlFinalId && !conta.arquivoXmlFaturamentoId && (
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] mr-1.5"
+                                      >
+                                        <Database className="h-2.5 w-2.5 mr-1" />
+                                        Banco Hospital
+                                      </Badge>
+                                    )}
                                     {formatCurrency(
                                       conta.valorFaturadoFinal || conta.valorFaturadoInicial
                                     )}{" "}
@@ -1829,7 +2063,7 @@ export default function FabricaFaturamento() {
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground italic">
-                                  Aguardando XML
+                                  Aguardando Busca no Banco / XML
                                 </span>
                               )}
                             </TableCell>
@@ -1892,6 +2126,82 @@ export default function FabricaFaturamento() {
                                 )}
 
                                 {/* AÇÕES DO SETOR 2: FATURAMENTO */}
+                                {/* AÇÕES DO SETOR 2: FATURAMENTO */}
+                                {conta.setorAtual === "faturamento" && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={sincronizarContaBancoEsteiraMutation.isPending}
+                                      onClick={() =>
+                                        sincronizarContaBancoEsteiraMutation.mutate({
+                                          fabricaContaId: conta.id,
+                                          avancarParaAuditoriaInterna: false,
+                                        })
+                                      }
+                                      className="h-8 gap-1 text-xs border-indigo-300 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100"
+                                      title="Busca ou atualiza os itens da conta diretamente no banco de dados do hospital (sem precisar exportar XML)"
+                                    >
+                                      <Zap className="h-3.5 w-3.5" />
+                                      {conta.totalItensXml > 0 ? "Atualizar do Banco" : "Buscar Conta no Banco"}
+                                    </Button>
+                                    {conta.totalItensXml > 0 && (conta.numeroContaHospital || conta.numeroGuia) && (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => {
+                                            const numRef = conta.numeroContaHospital || conta.numeroGuia;
+                                            if (conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId) {
+                                              setLocation(
+                                                `/conta-convenio-detalhes?numeroConta=${encodeURIComponent(
+                                                  numRef
+                                                )}&origem=XML&sourceHospitalId=${
+                                                  conta.hospitalEstabelecimentoId
+                                                }&estabelecimentoId=${
+                                                  conta.hospitalEstabelecimentoId
+                                                }&numeroLote=${encodeURIComponent(
+                                                  conta.numeroLote || ""
+                                                )}&arquivoId=${
+                                                  conta.arquivoXmlFinalId ||
+                                                  conta.arquivoXmlFaturamentoId ||
+                                                  ""
+                                                }&fabricaContaId=${conta.id}`
+                                              );
+                                            } else {
+                                              setLocation(
+                                                caminhoContaFabricaBancoCliente({
+                                                  estabelecimentoId: conta.hospitalEstabelecimentoId,
+                                                  numeroConta: numRef,
+                                                  fabricaContaId: conta.id,
+                                                })
+                                              );
+                                            }
+                                          }}
+                                          className="h-8 gap-1 text-xs border-emerald-300 text-emerald-800 bg-emerald-50/60 hover:bg-emerald-100"
+                                          title="Abrir itens cobrados e pré-auditoria do Motor de Regras"
+                                        >
+                                          <Eye className="h-3.5 w-3.5" />
+                                          Auditar Itens ({conta.totalItensXml})
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          onClick={() =>
+                                            transicionarMutation.mutate({
+                                              contaIds: [conta.id],
+                                              setorDestino: "auditoria_interna",
+                                            })
+                                          }
+                                          className="h-8 gap-1 text-xs bg-emerald-600 hover:bg-emerald-700"
+                                          title="Concluir faturamento desta conta e enviar para Auditoria Interna"
+                                        >
+                                          Enviar p/ Aud. Interna
+                                          <ArrowRight className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </>
+                                )}
                                 {conta.setorAtual === "faturamento" && (
                                   <>
                                     {conta.statusSetor === "fila" && (
@@ -1924,6 +2234,46 @@ export default function FabricaFaturamento() {
                                 )}
 
                                 {/* AÇÕES DO SETOR 3: AUDITORIA INTERNA */}
+                                {/* AÇÕES DO SETOR 3: AUDITORIA INTERNA */}
+                                {conta.setorAtual === "auditoria_interna" && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={sincronizarContaBancoEsteiraMutation.isPending}
+                                      onClick={() =>
+                                        sincronizarContaBancoEsteiraMutation.mutate({
+                                          fabricaContaId: conta.id,
+                                          avancarParaAuditoriaInterna: false,
+                                        })
+                                      }
+                                      className="h-8 gap-1 text-xs border-indigo-300 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100"
+                                      title="Reimportar itens diretamente do banco do hospital para conferir se os ajustes foram realizados"
+                                    >
+                                      <RefreshCw className="h-3.5 w-3.5" />
+                                      Atualizar do Banco
+                                    </Button>
+                                    {!(conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId) && (conta.numeroContaHospital || conta.numeroGuia) && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          setLocation(
+                                            caminhoContaFabricaBancoCliente({
+                                              estabelecimentoId: conta.hospitalEstabelecimentoId,
+                                              numeroConta: conta.numeroContaHospital || conta.numeroGuia,
+                                              fabricaContaId: conta.id,
+                                            })
+                                          )
+                                        }
+                                        className="h-8 gap-1 text-xs"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                        Auditar Regras (Banco)
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
                                 {conta.setorAtual === "auditoria_interna" && (
                                   <>
                                     {conta.statusSetor === "fila" && (
@@ -1954,7 +2304,7 @@ export default function FabricaFaturamento() {
                                       <Upload className="h-3.5 w-3.5" />
                                       + XML Honorários
                                     </Button>
-                                    {conta.numeroGuia && (
+                                    {conta.numeroGuia && (conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId) && (
                                       <Button
                                         size="sm"
                                         variant="outline"
@@ -2102,7 +2452,7 @@ export default function FabricaFaturamento() {
                                 {(conta.setorAtual === "enviado_convenio" ||
                                   conta.setorAtual === "recursos") && (
                                   <>
-                                    {conta.numeroGuia && (
+                                    {conta.numeroGuia && (conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId) && (
                                       <Button
                                         size="sm"
                                         variant="outline"

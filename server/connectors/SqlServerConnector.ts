@@ -65,14 +65,35 @@ export class SqlServerConnector {
     }
   }
 
-  async executarQuery(query: string): Promise<any[]> {
+  private processarQueryEParams(query: string, params?: any[]): string {
+    if (!params || params.length === 0) return query;
+    let processedQuery = query;
+    for (let index = params.length - 1; index >= 0; index--) {
+      const param = params[index];
+      const placeholder = `$${index + 1}`;
+      if (processedQuery.includes(placeholder)) {
+        const valorFormatado =
+          param === null || param === undefined
+            ? "NULL"
+            : `'${String(param).replace(/'/g, "''")}'`;
+        processedQuery = processedQuery.replace(
+          new RegExp(`\\$${index + 1}\\b`, "g"),
+          valorFormatado
+        );
+      }
+    }
+    return processedQuery;
+  }
+
+  async executarQuery(query: string, params?: any[]): Promise<any[]> {
     if (!this.pool) {
       throw new Error("Conexão não estabelecida");
     }
 
     try {
+      const processedQuery = this.processarQueryEParams(query, params);
       const request = this.pool.request();
-      const result = await request.query(query);
+      const result = await request.query(processedQuery);
       return result.recordset || [];
     } catch (error) {
       logger.error({

@@ -1,6 +1,6 @@
 /**
  * Templates de Mapeamento para Integrador de Dados
- * 
+ *
  * Cada template contém query SQL e mapeamento de campos pré-configurados
  * para facilitar o onboarding de novos clientes/hospitais.
  */
@@ -30,7 +30,7 @@ export const TEMPLATES_MAPEAMENTO: TemplateMapeamento[] = [
     sistema: "Warleine",
     descricao: "Importa dados de faturamento do sistema Warleine (SQL Server). Inclui valores faturados, recebidos, glosados e dados de recurso.",
     bancoTipo: "SQL Server",
-    querySQL: `SELECT 
+    querySQL: `SELECT
   f.numconta,
   f.numatend,
   f.nomeconv AS nomeconv,
@@ -101,12 +101,66 @@ ORDER BY f.numconta, f.codproc`,
     ],
   },
   {
+    id: "warleine_busca_conta",
+    nome: "Busca Conta - Warleine (Esteira em Tempo Real)",
+    sistema: "Warleine",
+    descricao: "Busca uma conta individual em tempo real pelo Nº da Conta ($1) para Recepção, Faturamento e Auditoria Interna na Esteira.",
+    bancoTipo: "SQL Server",
+    querySQL: `SELECT
+  c.numconta AS numconta,
+  c.numatend AS numatend,
+  c.guiacobra AS guiacobra,
+  c.aihguia AS aihguia,
+  c.nomepac AS pacientenome,
+  c.matricula AS matricula,
+  c.nomeconv AS nomeconv,
+  c.codconv AS codconv,
+  c.tipoatend AS tipoatend,
+  c.dataint AS datainternacao,
+  c.datasai AS dataalta,
+  c.mesprod AS competencia,
+  i.nomecc AS setor,
+  i.tipoproc AS tipoproc,
+  i.procdisco AS codigoitem,
+  i.codproprio AS codigoitemtuss,
+  i.descricao AS descricao,
+  i.quantidade AS quantidade,
+  i.vl_unitario AS valorunitario,
+  i.vl_faturado AS valortotal,
+  i.data AS dataexecucao,
+  i.nomeprest AS nomeprest
+FROM contas c
+LEFT JOIN itens_conta i ON i.numconta = c.numconta
+WHERE CAST(c.numconta AS VARCHAR(50)) = $1
+ORDER BY i.data, i.tipoproc, i.descricao`,
+    campoChaveSugerido: "numconta",
+    campos: [
+      { colunaOrigemNome: "numconta", colunaDestinoNome: "Número da Conta", descricao: "Identificador da conta no hospital" },
+      { colunaOrigemNome: "numatend", colunaDestinoNome: "Número do Atendimento", descricao: "Identificador do atendimento" },
+      { colunaOrigemNome: "guiacobra", colunaDestinoNome: "Número da Guia", descricao: "Guia TISS / cobrança" },
+      { colunaOrigemNome: "pacientenome", colunaDestinoNome: "Nome do Paciente", descricao: "Nome completo do paciente" },
+      { colunaOrigemNome: "nomeconv", colunaDestinoNome: "Convênio", descricao: "Nome do convênio" },
+      { colunaOrigemNome: "datainternacao", colunaDestinoNome: "Data Internação/Entrada", descricao: "Data de entrada/internação" },
+      { colunaOrigemNome: "dataalta", colunaDestinoNome: "Data Alta/Saída", descricao: "Data da alta hospitalar" },
+      { colunaOrigemNome: "codigoitem", colunaDestinoNome: "Código Item", descricao: "Código do item cobrado (NULL se sem baixa)" },
+      { colunaOrigemNome: "descricao", colunaDestinoNome: "Descrição Item", descricao: "Descrição do item cobrado" },
+      { colunaOrigemNome: "quantidade", colunaDestinoNome: "Quantidade", descricao: "Quantidade lançada" },
+      { colunaOrigemNome: "valorunitario", colunaDestinoNome: "Valor Unitário", descricao: "Valor unitário do item" },
+      { colunaOrigemNome: "valortotal", colunaDestinoNome: "Valor Total", descricao: "Valor total do item" },
+    ],
+    observacoes: [
+      "IMPORTANTE: Mantenha 'Busca Conta' no nome do mapeamento para ativar a busca direta na Esteira e em Contas Convênio",
+      "Use LEFT JOIN na tabela de itens para que contas recém-abertas (ainda sem baixas de farmácia) também retornem o cabeçalho na Recepção",
+      "O parâmetro $1 é substituído automaticamente pelo Número da Conta digitado pelo usuário",
+    ],
+  },
+  {
     id: "tasy_faturamento",
     nome: "Tasy - Faturamento Completo",
     sistema: "Tasy",
     descricao: "Importa dados de faturamento do sistema Tasy (Oracle). Inclui procedimentos, materiais/medicamentos, valores e glosas.",
     bancoTipo: "Oracle",
-    querySQL: `SELECT 
+    querySQL: `SELECT
   ic.nr_interno_conta AS numconta,
   ic.nr_atendimento AS numatend,
   c.ds_convenio AS nomeconv,
@@ -114,7 +168,7 @@ ORDER BY f.numconta, f.codproc`,
   s.ds_setor_atendimento AS setor,
   pi.cd_procedimento AS codproc,
   pi.ds_procedimento AS descricao,
-  CASE 
+  CASE
     WHEN pi.ie_tipo_item = 1 THEN 'Procedimento'
     WHEN pi.ie_tipo_item = 2 THEN 'Mat/Med'
     WHEN pi.ie_tipo_item = 3 THEN 'Taxa'
@@ -140,6 +194,7 @@ JOIN setor_atendimento s ON ic.cd_setor_atendimento = s.cd_setor_atendimento
 JOIN pessoa_fisica p ON ic.cd_pessoa_fisica = p.cd_pessoa_fisica
 LEFT JOIN motivo_glosa mg ON pi.cd_motivo_glosa = mg.cd_motivo_glosa
 WHERE ic.dt_conta >= TO_DATE('{data_inicio}', 'YYYY-MM-DD')
+AND (NVL(pi.ie_situacao, 'A') <> 'C')
 ORDER BY ic.nr_interno_conta, pi.cd_procedimento`,
     campoChaveSugerido: "numconta",
     campos: [
@@ -172,12 +227,71 @@ ORDER BY ic.nr_interno_conta, pi.cd_procedimento`,
     ],
   },
   {
+    id: "tasy_busca_conta",
+    nome: "Busca Conta - Tasy (Esteira em Tempo Real)",
+    sistema: "Tasy",
+    descricao: "Busca uma conta individual no Tasy (Oracle) pelo nr_interno_conta ($1) para Recepção, Faturamento e Auditoria Interna na Esteira.",
+    bancoTipo: "Oracle",
+    querySQL: `SELECT
+  ic.nr_interno_conta AS numconta,
+  ic.nr_atendimento AS numatend,
+  ic.nr_guia AS guiacobra,
+  p.nm_pessoa_fisica AS pacientenome,
+  c.ds_convenio AS nomeconv,
+  c.cd_convenio AS codconv,
+  TO_CHAR(ap.dt_entrada, 'YYYY-MM-DD') AS datainternacao,
+  TO_CHAR(ap.dt_alta, 'YYYY-MM-DD') AS dataalta,
+  TO_CHAR(ic.dt_conta, 'YYYY-MM') AS competencia,
+  s.ds_setor_atendimento AS setor,
+  CASE
+    WHEN pi.ie_tipo_item = 1 THEN 'PROCEDIMENTO'
+    WHEN pi.ie_tipo_item = 2 THEN 'MAT_MED'
+    WHEN pi.ie_tipo_item = 3 THEN 'TAXA'
+    WHEN pi.ie_tipo_item = 4 THEN 'DIARIA'
+    ELSE 'OUTROS'
+  END AS tipoproc,
+  pi.cd_procedimento AS codigoitem,
+  pi.cd_procedimento_tuss AS codigoitemtuss,
+  pi.ds_procedimento AS descricao,
+  pi.qt_procedimento AS quantidade,
+  CASE WHEN NVL(pi.qt_procedimento, 0) > 0 THEN ROUND(pi.vl_procedimento / pi.qt_procedimento, 4) ELSE pi.vl_procedimento END AS valorunitario,
+  pi.vl_procedimento AS valortotal,
+  TO_CHAR(pi.dt_procedimento, 'YYYY-MM-DD') AS dataexecucao
+FROM interno_conta ic
+JOIN atendimento_paciente ap ON ic.nr_atendimento = ap.nr_atendimento
+JOIN pessoa_fisica p ON ap.cd_pessoa_fisica = p.cd_pessoa_fisica
+JOIN convenio c ON ic.cd_convenio = c.cd_convenio
+LEFT JOIN setor_atendimento s ON ic.cd_setor_atendimento = s.cd_setor_atendimento
+LEFT JOIN procedimento_item pi ON pi.nr_interno_conta = ic.nr_interno_conta AND NVL(pi.ie_situacao, 'A') <> 'C'
+WHERE TO_CHAR(ic.nr_interno_conta) = $1
+ORDER BY pi.dt_procedimento, pi.cd_procedimento`,
+    campoChaveSugerido: "numconta",
+    campos: [
+      { colunaOrigemNome: "numconta", colunaDestinoNome: "Número da Conta", descricao: "nr_interno_conta do Tasy" },
+      { colunaOrigemNome: "numatend", colunaDestinoNome: "Número do Atendimento", descricao: "nr_atendimento do Tasy" },
+      { colunaOrigemNome: "guiacobra", colunaDestinoNome: "Número da Guia", descricao: "nr_guia do Tasy" },
+      { colunaOrigemNome: "pacientenome", colunaDestinoNome: "Nome do Paciente", descricao: "nm_pessoa_fisica do Tasy" },
+      { colunaOrigemNome: "nomeconv", colunaDestinoNome: "Convênio", descricao: "ds_convenio do Tasy" },
+      { colunaOrigemNome: "datainternacao", colunaDestinoNome: "Data Internação/Entrada", descricao: "dt_entrada do Tasy" },
+      { colunaOrigemNome: "dataalta", colunaDestinoNome: "Data Alta/Saída", descricao: "dt_alta do Tasy" },
+      { colunaOrigemNome: "codigoitem", colunaDestinoNome: "Código Item", descricao: "cd_procedimento do Tasy" },
+      { colunaOrigemNome: "descricao", colunaDestinoNome: "Descrição Item", descricao: "ds_procedimento do Tasy" },
+      { colunaOrigemNome: "quantidade", colunaDestinoNome: "Quantidade", descricao: "qt_procedimento do Tasy" },
+      { colunaOrigemNome: "valortotal", colunaDestinoNome: "Valor Total", descricao: "vl_procedimento do Tasy" },
+    ],
+    observacoes: [
+      "IMPORTANTE: Mantenha 'Busca Conta' no nome do mapeamento para ativar a busca direta na Esteira",
+      "Usa LEFT JOIN em procedimento_item para retornar o cabeçalho mesmo quando a conta ainda não tem itens baixados",
+      "O parâmetro $1 é substituído automaticamente pelo Número da Conta digitado pelo usuário",
+    ],
+  },
+  {
     id: "mv_faturamento",
     nome: "MV - Faturamento Completo",
     sistema: "MV",
     descricao: "Importa dados de faturamento do sistema MV/Soul (Oracle/PostgreSQL). Inclui itens de conta, valores e glosas.",
     bancoTipo: "Oracle/PostgreSQL",
-    querySQL: `SELECT 
+    querySQL: `SELECT
   r.CD_REGISTRO AS numconta,
   a.CD_ATENDIMENTO AS numatend,
   c.NM_CONVENIO AS nomeconv,
@@ -185,7 +299,7 @@ ORDER BY ic.nr_interno_conta, pi.cd_procedimento`,
   u.DS_UNID_INT AS setor,
   ic.CD_PRO_FAT AS codproc,
   pf.DS_PRO_FAT AS descricao,
-  CASE 
+  CASE
     WHEN ic.TP_ITEM = 'P' THEN 'Procedimento'
     WHEN ic.TP_ITEM = 'M' THEN 'Mat/Med'
     WHEN ic.TP_ITEM = 'T' THEN 'Taxa'
@@ -246,12 +360,64 @@ ORDER BY r.CD_REGISTRO, ic.CD_PRO_FAT`,
     ],
   },
   {
+    id: "mv_busca_conta",
+    nome: "Busca Conta - MV / Soul (Esteira em Tempo Real)",
+    sistema: "MV",
+    descricao: "Busca uma conta individual no MV/Soul pelo CD_REG_FAT ($1) para Recepção, Faturamento e Auditoria Interna na Esteira.",
+    bancoTipo: "Oracle/PostgreSQL",
+    querySQL: `SELECT
+  r.CD_REG_FAT AS numconta,
+  a.CD_ATENDIMENTO AS numatend,
+  r.NR_GUIA AS guiacobra,
+  p.NM_PACIENTE AS pacientenome,
+  c.NM_CONVENIO AS nomeconv,
+  c.CD_CONVENIO AS codconv,
+  TO_CHAR(a.DT_ATENDIMENTO, 'YYYY-MM-DD') AS datainternacao,
+  TO_CHAR(a.DT_ALTA, 'YYYY-MM-DD') AS dataalta,
+  TO_CHAR(r.DT_COMPETENCIA, 'YYYY-MM') AS competencia,
+  u.DS_UNID_INT AS setor,
+  ic.CD_PRO_FAT AS codigoitem,
+  pf.DS_PRO_FAT AS descricao,
+  ic.QT_LANCAMENTO AS quantidade,
+  ic.VL_UNITARIO AS valorunitario,
+  ic.VL_TOTAL_CONTA AS valortotal,
+  TO_CHAR(ic.DT_LANCAMENTO, 'YYYY-MM-DD') AS dataexecucao
+FROM DBAMV.REG_FAT r
+JOIN DBAMV.ATENDIME a ON r.CD_ATENDIMENTO = a.CD_ATENDIMENTO
+JOIN DBAMV.PACIENTE p ON a.CD_PACIENTE = p.CD_PACIENTE
+JOIN DBAMV.CONVENIO c ON r.CD_CONVENIO = c.CD_CONVENIO
+LEFT JOIN DBAMV.UNID_INT u ON a.CD_UNID_INT = u.CD_UNID_INT
+LEFT JOIN DBAMV.ITREG_FAT ic ON ic.CD_REG_FAT = r.CD_REG_FAT
+LEFT JOIN DBAMV.PRO_FAT pf ON ic.CD_PRO_FAT = pf.CD_PRO_FAT
+WHERE TO_CHAR(r.CD_REG_FAT) = $1
+ORDER BY ic.DT_LANCAMENTO, ic.CD_PRO_FAT`,
+    campoChaveSugerido: "numconta",
+    campos: [
+      { colunaOrigemNome: "numconta", colunaDestinoNome: "Número da Conta", descricao: "CD_REG_FAT do MV" },
+      { colunaOrigemNome: "numatend", colunaDestinoNome: "Número do Atendimento", descricao: "CD_ATENDIMENTO do MV" },
+      { colunaOrigemNome: "guiacobra", colunaDestinoNome: "Número da Guia", descricao: "NR_GUIA do MV" },
+      { colunaOrigemNome: "pacientenome", colunaDestinoNome: "Nome do Paciente", descricao: "NM_PACIENTE do MV" },
+      { colunaOrigemNome: "nomeconv", colunaDestinoNome: "Convênio", descricao: "NM_CONVENIO do MV" },
+      { colunaOrigemNome: "datainternacao", colunaDestinoNome: "Data Internação/Entrada", descricao: "DT_ATENDIMENTO do MV" },
+      { colunaOrigemNome: "dataalta", colunaDestinoNome: "Data Alta/Saída", descricao: "DT_ALTA do MV" },
+      { colunaOrigemNome: "codigoitem", colunaDestinoNome: "Código Item", descricao: "CD_PRO_FAT do MV" },
+      { colunaOrigemNome: "descricao", colunaDestinoNome: "Descrição Item", descricao: "DS_PRO_FAT do MV" },
+      { colunaOrigemNome: "quantidade", colunaDestinoNome: "Quantidade", descricao: "QT_LANCAMENTO do MV" },
+      { colunaOrigemNome: "valortotal", colunaDestinoNome: "Valor Total", descricao: "VL_TOTAL_CONTA do MV" },
+    ],
+    observacoes: [
+      "IMPORTANTE: Mantenha 'Busca Conta' no nome do mapeamento para ativar a busca direta na Esteira",
+      "Usa LEFT JOIN em ITREG_FAT para retornar o cabeçalho mesmo quando a conta ainda não tem itens baixados",
+      "O parâmetro $1 é substituído automaticamente pelo Número da Conta digitado pelo usuário",
+    ],
+  },
+  {
     id: "easyvision_faturamento",
     nome: "EasyVision - Faturamento Completo",
     sistema: "EasyVision",
     descricao: "Importa dados de faturamento do sistema EasyVision (PostgreSQL). Inclui atendimentos, procedimentos e valores.",
     bancoTipo: "PostgreSQL",
-    querySQL: `SELECT 
+    querySQL: `SELECT
   c.numero_conta AS numconta,
   a.numero_atendimento AS numatend,
   cv.nome_convenio AS nomeconv,
@@ -259,7 +425,7 @@ ORDER BY r.CD_REGISTRO, ic.CD_PRO_FAT`,
   s.descricao_setor AS setor,
   i.codigo_procedimento AS codproc,
   i.descricao_procedimento AS descricao,
-  CASE 
+  CASE
     WHEN i.tipo_item = 'PROC' THEN 'Procedimento'
     WHEN i.tipo_item = 'MATMED' THEN 'Mat/Med'
     WHEN i.tipo_item = 'TAXA' THEN 'Taxa'
@@ -314,6 +480,67 @@ ORDER BY c.numero_conta, i.codigo_procedimento`,
       "Os nomes de tabelas podem variar conforme a versão do EasyVision",
       "Verifique se o schema público é o correto ou se há um schema específico",
       "Para incluir dados de recurso, adicione JOINs com as tabelas de recurso",
+    ],
+  },
+  {
+    id: "easyvision_busca_conta",
+    nome: "Busca Conta - EasyVision (Esteira em Tempo Real)",
+    sistema: "EasyVision",
+    descricao: "Busca uma conta individual no EasyVision (PostgreSQL) pelo numero_conta ($1) para Recepção, Faturamento e Auditoria Interna na Esteira.",
+    bancoTipo: "PostgreSQL",
+    querySQL: `SELECT
+  c.numero_conta AS numconta,
+  a.numero_atendimento AS numatend,
+  c.numero_guia AS guiacobra,
+  p.nome_paciente AS pacientenome,
+  p.numero_carteirinha AS matricula,
+  cv.nome_convenio AS nomeconv,
+  cv.codigo_convenio AS codconv,
+  a.tipo_atendimento AS tipoatend,
+  TO_CHAR(a.data_entrada, 'YYYY-MM-DD') AS datainternacao,
+  TO_CHAR(a.data_alta, 'YYYY-MM-DD') AS dataalta,
+  TO_CHAR(c.data_competencia, 'YYYY-MM') AS competencia,
+  s.descricao_setor AS setor,
+  CASE
+    WHEN i.tipo_item = 'PROC' THEN 'PROCEDIMENTO'
+    WHEN i.tipo_item = 'MATMED' THEN 'MAT_MED'
+    WHEN i.tipo_item = 'TAXA' THEN 'TAXA'
+    WHEN i.tipo_item = 'DIARIA' THEN 'DIARIA'
+    ELSE 'OUTROS'
+  END AS tipoproc,
+  i.codigo_procedimento AS codigoitem,
+  i.codigo_tuss AS codigoitemtuss,
+  i.descricao_procedimento AS descricao,
+  i.quantidade AS quantidade,
+  CASE WHEN COALESCE(i.quantidade, 0) > 0 THEN ROUND(i.valor_cobrado / i.quantidade, 4) ELSE i.valor_cobrado END AS valorunitario,
+  i.valor_cobrado AS valortotal,
+  TO_CHAR(i.data_execucao, 'YYYY-MM-DD') AS dataexecucao
+FROM contas c
+JOIN atendimentos a ON c.atendimento_id = a.id
+JOIN pacientes p ON a.paciente_id = p.id
+JOIN convenios cv ON c.convenio_id = cv.id
+LEFT JOIN setores s ON a.setor_id = s.id
+LEFT JOIN itens_conta i ON i.conta_id = c.id
+WHERE c.numero_conta::text = $1
+ORDER BY i.data_execucao, i.codigo_procedimento`,
+    campoChaveSugerido: "numconta",
+    campos: [
+      { colunaOrigemNome: "numconta", colunaDestinoNome: "Número da Conta", descricao: "numero_conta do EasyVision" },
+      { colunaOrigemNome: "numatend", colunaDestinoNome: "Número do Atendimento", descricao: "numero_atendimento do EasyVision" },
+      { colunaOrigemNome: "guiacobra", colunaDestinoNome: "Número da Guia", descricao: "numero_guia do EasyVision" },
+      { colunaOrigemNome: "pacientenome", colunaDestinoNome: "Nome do Paciente", descricao: "nome_paciente do EasyVision" },
+      { colunaOrigemNome: "nomeconv", colunaDestinoNome: "Convênio", descricao: "nome_convenio do EasyVision" },
+      { colunaOrigemNome: "datainternacao", colunaDestinoNome: "Data Internação/Entrada", descricao: "data_entrada do EasyVision" },
+      { colunaOrigemNome: "dataalta", colunaDestinoNome: "Data Alta/Saída", descricao: "data_alta do EasyVision" },
+      { colunaOrigemNome: "codigoitem", colunaDestinoNome: "Código Item", descricao: "codigo_procedimento do EasyVision" },
+      { colunaOrigemNome: "descricao", colunaDestinoNome: "Descrição Item", descricao: "descricao_procedimento do EasyVision" },
+      { colunaOrigemNome: "quantidade", colunaDestinoNome: "Quantidade", descricao: "quantidade do EasyVision" },
+      { colunaOrigemNome: "valortotal", colunaDestinoNome: "Valor Total", descricao: "valor_cobrado do EasyVision" },
+    ],
+    observacoes: [
+      "IMPORTANTE: Mantenha 'Busca Conta' no nome do mapeamento para ativar a busca direta na Esteira",
+      "Usa LEFT JOIN em itens_conta para retornar o cabeçalho mesmo quando a conta ainda não tem itens baixados pela farmácia",
+      "O parâmetro $1 é substituído automaticamente pelo Número da Conta digitado pelo usuário",
     ],
   },
 ];

@@ -20,3 +20,18 @@ export function caminhoContaFabricaImportada(destino: DestinoContaFabrica): stri
   });
   return `/conta-convenio-detalhes?${params.toString()}`;
 }
+
+export function caminhoContaFabricaBancoCliente(destino: {
+  estabelecimentoId: number;
+  numeroConta: string;
+  fabricaContaId: number;
+}): string {
+  const params = new URLSearchParams({
+    numeroConta: destino.numeroConta,
+    origem: "BANCO_CLIENTE",
+    sourceHospitalId: String(destino.estabelecimentoId),
+    estabelecimentoId: String(destino.estabelecimentoId),
+    fabricaContaId: String(destino.fabricaContaId),
+  });
+  return `/conta-convenio-detalhes?${params.toString()}`;
+}
