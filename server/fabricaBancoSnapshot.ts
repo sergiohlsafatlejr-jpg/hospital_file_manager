@@ -40,42 +40,81 @@ export function dataBanco(value: unknown): Date | null {
   const day = normalizarDataExecucao(value);
   return day ? new Date(`${day}T12:00:00.000Z`) : null;
 }
+function conflitoIdentidadeBanco(): never {
+  throw new TRPCError({ code: "CONFLICT", message: "A consulta retornou identidades diferentes. Nenhum snapshot foi aplicado." });
+}
+/** Ausência é opcional; aliases ou valores presentes incompatíveis não são fallback. */
+function campoIdentidadeBanco(row: any, keys: string[], normalize = (value: unknown) => text(value), preserveText = false) {
+  const present = [...new Set(keys.flatMap(key => [key, key.toLowerCase(), key.toUpperCase()]))]
+    .map(key => row[key]).filter(value => text(value) != null);
+  const values = present.map(normalize);
+  if (new Set(values).size > 1) conflitoIdentidadeBanco();
+  return preserveText ? text(present[0]) : values[0] ?? null;
+}
+function dataIdentidadeBanco(value: unknown): string {
+  const day = normalizarDataExecucao(value instanceof Date ? value : text(value));
+  if (!day) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Data de identidade inválida na origem." });
+  return day;
+}
 function headerRow(row: any) {
-  const get = (...keys: string[]) => text(campoBanco(row, ...keys));
+  const get = (...keys: string[]) => campoIdentidadeBanco(row, keys);
+  const getName = (...keys: string[]) => campoIdentidadeBanco(row, keys, norm, true);
   return {
     numeroContaHospital: get("numconta", "numero_conta", "conta", "nr_interno_conta", "cd_reg_fat"),
     numeroAtendimento: get("numatend", "numero_atendimento", "atendimento", "atend", "nr_atendimento", "cd_atendimento"),
     numeroGuia: get("guiacobra", "guia_cobra", "guia", "nr_guia", "aihguia", "aih_guia", "autorizacao", "doc_convenio", "senha"),
-    nomePaciente: get("pacientenome", "nomepaciente", "nomepac", "nome_paciente", "paciente", "nm_pessoa_fisica", "nm_paciente"),
+    nomePaciente: getName("pacientenome", "nomepaciente", "nomepac", "nome_paciente", "paciente", "nm_pessoa_fisica", "nm_paciente"),
     carteiraBeneficiario: get("matricula", "carteirinha", "carteira", "numero_carteirinha"),
-    convenioNome: get("nomeconv", "nome_conv", "convenio", "nomeconvenio", "ds_convenio", "nm_convenio"),
+    convenioNome: getName("nomeconv", "nome_conv", "convenio", "nomeconvenio", "ds_convenio", "nm_convenio"),
     convenioCodigo: get("codconv", "cod_conv", "codigo_convenio", "cd_convenio"),
-    competencia: get("competencia", "mesprod", "mes_prod", "comp", "encerramento")?.replace("-", "/") ?? null,
-    dataEntrada: normalizarDataExecucao(campoBanco(row, "datainternacao", "dataint", "data_internacao", "dt_inicio", "data_entrada", "dt_entrada", "dt_atendimento")) || null,
-    dataAlta: normalizarDataExecucao(campoBanco(row, "dataalta", "datasai", "data_alta", "data_saida", "dt_fim", "dt_alta")) || null,
-    tipoAtendimento: get("tipoatend", "tipo_atend", "tipo_atendimento", "tipo"),
+    convenioRegistroAns: get("registroAns", "registro_ans", "registroans", "registro_ans_convenio", "ans_convenio"),
+    competencia: campoIdentidadeBanco(row, ["competencia", "mesprod", "mes_prod", "comp", "encerramento"], value => text(value)!.replace("-", "/")),
+    dataEntrada: campoIdentidadeBanco(row, ["datainternacao", "dataint", "data_internacao", "dt_inicio", "data_entrada", "dt_entrada", "dt_atendimento"], dataIdentidadeBanco),
+    dataAlta: campoIdentidadeBanco(row, ["dataalta", "datasai", "data_alta", "data_saida", "dt_fim", "dt_alta"], dataIdentidadeBanco),
+    tipoAtendimento: getName("tipoatend", "tipo_atend", "tipo_atendimento", "tipo"),
   };
 }
 export type ColecaoBanco = Awaited<ReturnType<typeof prepararColecaoBanco>>;
 export async function prepararColecaoBanco(db: any, hospitalId: number, numeroConta: string, rows: any[]) {
+  numeroConta = numeroConta.trim();
   if (!rows.length) return { encontrada: false as const, hospitalId, numeroConta, hash: hashBanco([hospitalId, numeroConta, "AUSENTE"]), cabecalho: null, itens: [], valorTotal: "0.00" };
   const headers = rows.map(headerRow);
-  const pick = <K extends keyof ReturnType<typeof headerRow>>(k: K) => headers.map(h => h[k]).find(v => v != null) ?? null;
-  const header = { ...headers[0], numeroAtendimento: pick("numeroAtendimento"), numeroGuia: pick("numeroGuia"), carteiraBeneficiario: pick("carteiraBeneficiario"), competencia: pick("competencia"), dataEntrada: pick("dataEntrada"), dataAlta: pick("dataAlta"), tipoAtendimento: pick("tipoAtendimento") };
-  if (!header.numeroContaHospital || header.numeroContaHospital !== numeroConta.trim()
-    || (!header.numeroAtendimento && !header.numeroGuia) || !header.nomePaciente || (!header.convenioNome && !header.convenioCodigo)) {
+  // Uma busca por atendimento só resolve UMA conta real. Não escolher MAX, a
+  // primeira conta ou um subconjunto de um resultado ambíguo, nem renumerá-la.
+  const unique = <K extends keyof ReturnType<typeof headerRow>>(key: K) => {
+    const values = headers.map(h => h[key]).filter(value => value != null);
+    const compared = ["nomePaciente", "convenioNome", "tipoAtendimento"].includes(key) ? values.map(norm) : values;
+    if (new Set(compared).size > 1) conflitoIdentidadeBanco();
+    return values[0] ?? null;
+  };
+  const header = Object.fromEntries(Object.keys(headers[0]).map(key => [key, unique(key as keyof typeof headers[0])])) as ReturnType<typeof headerRow>;
+  if (headers.some(h => !h.numeroContaHospital || !h.nomePaciente || (!h.convenioNome && !h.convenioCodigo && !h.convenioRegistroAns))
+    || (!header.numeroAtendimento && !header.numeroGuia)) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O hospital não retornou uma identidade completa da conta (conta, atendimento/guia, paciente e convênio)." });
   }
-  const identity = (h: ReturnType<typeof headerRow>) => [h.numeroContaHospital, h.numeroAtendimento, h.numeroGuia, norm(h.nomePaciente), h.carteiraBeneficiario, norm(h.convenioNome), h.convenioCodigo, h.competencia, h.dataEntrada, h.dataAlta];
-  if (headers.some(h => h.numeroContaHospital !== header.numeroContaHospital || norm(h.nomePaciente) !== norm(header.nomePaciente) || norm(h.convenioNome) !== norm(header.convenioNome) || h.convenioCodigo !== header.convenioCodigo || (h.numeroGuia && header.numeroGuia && h.numeroGuia !== header.numeroGuia))) {
-    throw new TRPCError({ code: "CONFLICT", message: "A consulta retornou identidades diferentes. Nenhum snapshot foi aplicado." });
+  if (!numeroConta || (header.numeroContaHospital !== numeroConta && header.numeroAtendimento !== numeroConta)) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A conta real ou o atendimento retornado deve corresponder ao identificador solicitado." });
   }
   if (header.competencia && !/^\d{4}[-/](0[1-9]|1[0-2])$/.test(header.competencia)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Competência inválida na origem." });
   const conveniosHospital = await db.select().from(convenios).where(and(or(eq(convenios.estabelecimentoId, hospitalId), isNull(convenios.estabelecimentoId)), eq(convenios.ativo, "sim")));
   const activeConvs = conveniosHospital.filter((c: any) => (c.estabelecimentoId === null || Number(c.estabelecimentoId) === hospitalId) && c.ativo === "sim");
-  let candidates = activeConvs.filter((c: any) => (header.convenioCodigo ? text(c.codigo) === header.convenioCodigo || text(c.registroAns) === header.convenioCodigo : norm(c.nome) === norm(header.convenioNome))); if (!candidates.length && !header.convenioCodigo && header.convenioNome) { const hn = norm(header.convenioNome), hc = hn.replace(/[^A-Z0-9]/g, ""); candidates = activeConvs.filter((c: any) => { const cn = norm(c.nome), cc = cn.replace(/[^A-Z0-9]/g, ""); return (cc && cc === hc) || (cn.length >= 4 && hn.length >= 4 && (cn.includes(hn) || hn.includes(cn))); }); }
+  // Código/ANS presentes são autoritativos e devem concordar; nunca fazer
+  // fallback por nome quando não resolvem. Sem código, somente nome canônico
+  // exato (caixa/acentos/trim). Equivalências de ERP devem ser explícitas na
+  // query configurada, não inferidas por substring/pontuação nesta camada.
+  const resolve = (h: ReturnType<typeof headerRow>) => activeConvs.filter((c: any) => {
+    if (h.convenioCodigo && text(c.codigo) !== h.convenioCodigo && text(c.registroAns) !== h.convenioCodigo) return false;
+    if (h.convenioRegistroAns && text(c.registroAns) !== h.convenioRegistroAns) return false;
+    return h.convenioCodigo || h.convenioRegistroAns ? true : norm(c.nome) === norm(h.convenioNome);
+  });
+  const candidates = resolve(header);
   if (candidates.length !== 1 || !Number.isSafeInteger(Number(candidates[0].id)) || Number(candidates[0].id) <= 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O convênio da origem deve resolver exatamente um cadastro canônico ativo, global ou do hospital." });
   const convenio = candidates[0];
+  for (const h of headers) {
+    const rowCandidates = resolve(h);
+    if (rowCandidates.length !== 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cada linha deve identificar um convênio canônico sem herdar código de outra linha." });
+    if (Number(rowCandidates[0].id) !== Number(convenio.id)) conflitoIdentidadeBanco();
+  }
   const cabecalho = { ...header, convenioId: Number(convenio.id), convenioNome: String(convenio.nome) };
   let total = new Decimal(0);
   const itens: any[] = [];
@@ -102,7 +141,7 @@ export async function prepararColecaoBanco(db: any, hospitalId: number, numeroCo
       setor: text(get("setor", "nomecc", "nome_cc", "centro_custo", "ds_setor_atendimento", "ds_unid_int")), statusAnalise: "pendente" });
   }
   itens.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  return { encontrada: true as const, hospitalId, numeroConta, cabecalho, itens, valorTotal: total.toFixed(2), hash: hashBanco([hospitalId, cabecalho, itens]) };
+  return { encontrada: true as const, hospitalId, numeroConta: cabecalho.numeroContaHospital!, cabecalho, itens, valorTotal: total.toFixed(2), hash: hashBanco([hospitalId, cabecalho, itens]) };
 }
 
 export function exigirEstadoBanco(conta: any, snapshot?: any) {

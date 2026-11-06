@@ -1,3 +1,9 @@
+import {
+  composicaoHonorariosValida,
+  versaoComposicaoHonorarios,
+  serializarHonorarios,
+  hashHonorarios,
+} from "./contaHonorariosComposicao";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   arquivos,
@@ -225,7 +231,15 @@ function fonteDbParaDominio(row: LinhaFonteDb): FonteMedicaPersistida {
     versaoSnapshotHospitalar: row.versaoSnapshotHospitalar,
     registros: row.registros,
     codigosDistintos: row.codigosDistintos,
-    procedimentos: procedimentosSanitizados(row.procedimentosJson),
+    procedimentos: procedimentosSanitizados(
+      registro(row.procedimentosJson)?.procedimentos ?? row.procedimentosJson
+    ),
+    ...(registro(row.procedimentosJson)
+      ? {
+          composicao: registro(row.procedimentosJson)
+            ?.composicao as FonteMedicaPersistida["composicao"],
+        }
+      : {}),
     criadoEm: row.criadoEm,
   };
 }
@@ -1056,94 +1070,113 @@ export function criarContaContextoMedicoRepositorioDrizzle(
           desc(contaContextoMedicoFontes.criadoEm),
           desc(contaContextoMedicoFontes.id)
         );
-      // Reimportações são append-only; somente a versão mais recente por arquivo
-      // médico + guia participa da composição atual. Quando o mesmo arquivo médico
-      // possui múltiplas linhas de `guiaHonorarios` gravadas para a mesma guia de
-      // referência, consolidamos os procedimentos em ordem cronológica de gravação.
-      const grupos = new Map<string, FonteMedicaPersistida[]>();
+      // Uma linha nova contém a composição inteira, não um bloco histórico.
+      // O manifesto limita a revisão vigente de TODO o arquivo neste scope.
+      const porArquivo = new Map<number, typeof rows>();
       for (const row of rows) {
-        const fonte = fonteDbParaDominio(row);
-        const chave = `${fonte.arquivoMedicoId}\u0000${fonte.guiaReferencia}`;
-        const lista = grupos.get(chave);
-        if (!lista) {
-          grupos.set(chave, [fonte]);
-          continue;
-        }
-        const maisRecente = lista[0];
-        if (
-          (fonte.loteImportacaoId ?? null) ===
-            (maisRecente.loteImportacaoId ?? null) &&
-          (fonte.versaoSnapshotHospitalar ?? "") ===
-            (maisRecente.versaoSnapshotHospitalar ?? "")
-        ) {
-          lista.push(fonte);
-        }
+        const lista = porArquivo.get(row.arquivoMedicoId) ?? [];
+        lista.push(row);
+        porArquivo.set(row.arquivoMedicoId, lista);
       }
-
       const atuais: FonteMedicaPersistida[] = [];
-      for (const lista of grupos.values()) {
-        if (lista.length === 1) {
-          atuais.push(lista[0]);
+      for (const lista of porArquivo.values()) {
+        lista.sort(
+          (a, b) =>
+            new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime() ||
+            b.id - a.id
+        );
+        const ultima = fonteDbParaDominio(lista[0]);
+        if (!ultima.composicao) {
+          // Array legado: nunca unir versões. Guias distintas podem representar
+          // fontes legítimas, mas a segurança intratupla é revalidada no serviço.
+          if (
+            !lista.every(row => Array.isArray(row.procedimentosJson)) ||
+            new Set(lista.map(row => row.guiaReferencia)).size !== 1
+          )
+            continue;
+          const vistas = new Set<string>();
+          for (const row of lista) {
+            if (
+              !Array.isArray(row.procedimentosJson) ||
+              vistas.has(row.guiaReferencia)
+            )
+              continue;
+            vistas.add(row.guiaReferencia);
+            atuais.push(fonteDbParaDominio(row));
+          }
           continue;
         }
-        const maisRecente = lista[0];
-        const emOrdemDeGravacao = [...lista].reverse();
-        const procedimentosConsolidados: ProcedimentoMedicoInfo[] = [];
-        for (const fonte of emOrdemDeGravacao) {
-          for (const proc of fonte.procedimentos) {
-            const idxMesmaPosicao = procedimentosConsolidados.findIndex(
-              existente =>
-                existente.codigo === proc.codigo &&
-                existente.descricao === proc.descricao &&
-                existente.dataExecucao === proc.dataExecucao &&
-                existente.sequencial !== null &&
-                existente.sequencial === proc.sequencial
+        if (
+          !composicaoHonorariosValida(
+            ultima.composicao,
+            ultima.procedimentos
+          ) ||
+          ultima.versaoSemantica !==
+            versaoComposicaoHonorarios(ultima.composicao)
+        )
+          continue;
+        const manifesto = ultima.composicao;
+        const vigentes = lista
+          .map(fonteDbParaDominio)
+          .filter(
+            f => f.composicao?.revisaoArquivo === manifesto.revisaoArquivo
+          );
+        const identidades = vigentes
+          .map(f => f.composicao!.identidadeHospitalar)
+          .sort();
+        const completa =
+          serializarHonorarios(identidades) ===
+            serializarHonorarios(manifesto.identidadesRevisao) &&
+          vigentes.every(
+            f =>
+              composicaoHonorariosValida(f.composicao, f.procedimentos) &&
+              f.versaoSemantica === versaoComposicaoHonorarios(f.composicao!) &&
+              serializarHonorarios(f.composicao!.identidadesRevisao) ===
+                serializarHonorarios(manifesto.identidadesRevisao) &&
+              f.loteImportacaoId === ultima.loteImportacaoId &&
+              f.versaoSnapshotHospitalar === ultima.versaoSnapshotHospitalar &&
+              f.registros === f.procedimentos.length &&
+              f.codigosDistintos ===
+                new Set(f.procedimentos.map(p => p.codigo)).size
             );
-            if (idxMesmaPosicao >= 0) {
-              const existente = procedimentosConsolidados[idxMesmaPosicao];
-              if (
-                existente.profissionais.length === 0 &&
-                proc.profissionais.length > 0
-              ) {
-                procedimentosConsolidados[idxMesmaPosicao] = proc;
-              } else if (
-                JSON.stringify(existente.profissionais) !==
-                  JSON.stringify(proc.profissionais) &&
-                existente.profissionais.length > 0 &&
-                proc.profissionais.length > 0
-              ) {
-                procedimentosConsolidados.push(proc);
-              }
-              continue;
-            }
-            const duplicadoExato = procedimentosConsolidados.some(
-              existente =>
-                existente.codigo === proc.codigo &&
-                existente.descricao === proc.descricao &&
-                existente.dataExecucao === proc.dataExecucao &&
-                existente.sequencial === proc.sequencial &&
-                JSON.stringify(existente.profissionais) ===
-                  JSON.stringify(proc.profissionais)
-            );
-            if (!duplicadoExato) {
-              procedimentosConsolidados.push(proc);
-            }
-          }
-        }
-        atuais.push({
-          ...maisRecente,
-          procedimentos: procedimentosConsolidados,
-          registros: procedimentosConsolidados.length,
-          codigosDistintos: new Set(
-            procedimentosConsolidados.map(proc => proc.codigo)
-          ).size,
+        if (!completa) continue;
+        const bases = [...vigentes]
+          .sort((a, b) =>
+            a.composicao!.identidadeHospitalar.localeCompare(
+              b.composicao!.identidadeHospitalar
+            )
+          )
+          .map(f => {
+            const { revisaoArquivo: _, ...base } = f.composicao!;
+            return base;
+          });
+        const revisaoVerificada = hashHonorarios({
+          scope,
+          arquivoMedicoId: ultima.arquivoMedicoId,
+          loteImportacaoId: ultima.loteImportacaoId ?? null,
+          snapshotHash: ultima.versaoSnapshotHospitalar,
+          grupos: bases,
         });
+        if (completa && revisaoVerificada === manifesto.revisaoArquivo)
+          atuais.push(...vigentes);
+        // Publicação parcial/corrompida falha fechada; não recupera a revisão anterior.
       }
       return atuais;
     },
 
     async inserirFonteSeAusente(fonte) {
       const db = await dbOuErro();
+      if (
+        fonte.composicao &&
+        (!composicaoHonorariosValida(fonte.composicao, fonte.procedimentos) ||
+          fonte.versaoSemantica !==
+            versaoComposicaoHonorarios(fonte.composicao))
+      ) {
+        throw new ContaContextoMedicoErro(
+          "PRECONDICAO",
+          "A composição da fonte médica é inválida."
+        );
+      }
       const executar = async (banco: BancoDrizzle) => {
         const valores = {
           estabelecimentoId: fonte.scope.estabelecimentoId,
@@ -1159,7 +1192,12 @@ export function criarContaContextoMedicoRepositorioDrizzle(
           versaoSnapshotHospitalar: fonte.versaoSnapshotHospitalar ?? "",
           registros: fonte.registros,
           codigosDistintos: fonte.codigosDistintos,
-          procedimentosJson: [...fonte.procedimentos],
+          procedimentosJson: fonte.composicao
+            ? {
+                procedimentos: [...fonte.procedimentos],
+                composicao: fonte.composicao,
+              }
+            : [...fonte.procedimentos],
         };
         try {
           const result = await banco
@@ -1199,27 +1237,48 @@ export function criarContaContextoMedicoRepositorioDrizzle(
           )
           .limit(1);
         if (!existente) bancoIndisponivel();
-        const versaoSnapshotHospitalar = fonte.versaoSnapshotHospitalar ?? "";
+        // Evidência é imutável: lote/snapshot entram na revisão semântica nova.
+        // Nunca transformar fonte histórica em publicação corrente alterando metadados.
         if (
-          existente.versaoSnapshotHospitalar !== versaoSnapshotHospitalar ||
+          existente.versaoSnapshotHospitalar !==
+            (fonte.versaoSnapshotHospitalar ?? "") ||
           existente.loteImportacaoId !== (fonte.loteImportacaoId ?? null)
         ) {
-          await banco
-            .update(contaContextoMedicoFontes)
-            .set({
-              versaoSnapshotHospitalar,
-              loteImportacaoId: fonte.loteImportacaoId ?? null,
-            })
-            .where(eq(contaContextoMedicoFontes.id, existente.id));
+          throw new ContaContextoMedicoErro(
+            "PRECONDICAO",
+            "A versão da fonte médica conflita com a publicação informada."
+          );
         }
-        return {
-          fonte: fonteDbParaDominio({
-            ...existente,
-            versaoSnapshotHospitalar,
-            loteImportacaoId: fonte.loteImportacaoId ?? null,
-          }),
-          criada: false,
-        };
+        if (fonte.composicao) {
+          const [ultima] = await banco
+            .select(camposFonte())
+            .from(contaContextoMedicoFontes)
+            .where(
+              and(
+                condicaoFonte(fonte.scope),
+                eq(
+                  contaContextoMedicoFontes.arquivoMedicoId,
+                  fonte.arquivoMedicoId
+                )
+              )
+            )
+            .orderBy(
+              desc(contaContextoMedicoFontes.criadoEm),
+              desc(contaContextoMedicoFontes.id)
+            )
+            .limit(1);
+          if (
+            !ultima ||
+            fonteDbParaDominio(ultima).composicao?.revisaoArquivo !==
+              fonte.composicao.revisaoArquivo
+          ) {
+            throw new ContaContextoMedicoErro(
+              "PRECONDICAO",
+              "Uma revisão histórica da fonte médica não pode substituir a publicação vigente."
+            );
+          }
+        }
+        return { fonte: fonteDbParaDominio(existente), criada: false };
       };
 
       if (!fonte.loteClaim) return executar(db);
