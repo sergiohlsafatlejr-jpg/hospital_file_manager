@@ -1,9 +1,18 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import EsteiraAmbulatorialPanel from "@/components/EsteiraAmbulatorialPanel";
+
 import { FabricaBuscaBancoState } from "@/lib/fabricaBuscaBancoState";
+
+import FabricaPainelTvModal from "@/components/faturamento/FabricaPainelTvModal";
+
 import { caminhoContaFabricaImportada, caminhoContaFabricaBancoCliente } from "@/lib/fabricaContaDestino";
-import { Database, Zap } from "lucide-react";
+import {
+  calcularAlertasPrazoContaFabrica,
+  PRAZO_FATURAMENTO_SAFATLE_HORAS,
+  PRAZO_VENCIMENTO_GUIA_DIAS,
+} from "@/lib/fabricaPrazosAlertas";
+import { Database, Tv, Zap } from "lucide-react";
 import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica, resolverAbaFabrica, resolverSelecaoSetorFabrica } from "@/lib/fabricaSetoresVisiveis";
 import type { SetorConsultaFabrica } from "@shared/fabricaSetores";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -197,7 +206,7 @@ export default function FabricaFaturamento() {
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [faturistaFiltro, setFaturistaFiltro] = useState<string>("todos");
   const [filtroFilaRapida, setFiltroFilaRapida] = useState<
-    "todas" | "minhas" | "fila_geral" | "devolvidas"
+    "todas" | "minhas" | "fila_geral" | "devolvidas" | "guia_vencida_25d" | "sla_60h_estourado"
   >("todas");
   const [buscaTexto, setBuscaTexto] = useState<string>("");
   const [selecionadas, setSelecionadas] = useState<number[]>([]);
@@ -295,6 +304,7 @@ export default function FabricaFaturamento() {
   );
   const [hospitalRelatorioFiltro, setHospitalRelatorioFiltro] = useState<string>("todos");
   const [abaRelatorio, setAbaRelatorio] = useState<string>("producao");
+  const [painelTvOpen, setPainelTvOpen] = useState<boolean>(urlParams.get("tv") === "1");
 
   // Modal de Nova Meta
   const [modalMetaOpen, setModalMetaOpen] = useState(false);
@@ -391,6 +401,18 @@ export default function FabricaFaturamento() {
     { enabled: podeVerRelatorios }
   );
 
+  const { data: listagemTvData, refetch: refetchContasTv } =
+    trpc.fabricaFaturamento.listarContas.useQuery(
+      {
+        hospitalEstabelecimentoId:
+          hospitalFiltro !== "todos" ? Number(hospitalFiltro) : undefined,
+        convenioId: convenioFiltro !== "todos" ? Number(convenioFiltro) : undefined,
+        page: 1,
+        pageSize: 500,
+      },
+      { enabled: painelTvOpen && podeConsultarSetores }
+    );
+
   const recarregarTudo = () => {
     refetchAuxData();
     if (podeConsultarSetores) {
@@ -399,6 +421,7 @@ export default function FabricaFaturamento() {
     }
     if (podeListarContas) refetchContas();
     if (podeVerRelatorios) refetchRelatorios();
+    if (painelTvOpen && podeConsultarSetores) refetchContasTv();
   };
 
   // Mutations
@@ -587,6 +610,7 @@ export default function FabricaFaturamento() {
       toast.success("Meta cadastrada com sucesso!");
       setModalMetaOpen(false);
       if (podeVerRelatorios) refetchRelatorios();
+    if (painelTvOpen && podeConsultarSetores) refetchContasTv();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -595,6 +619,7 @@ export default function FabricaFaturamento() {
     onSuccess: () => {
       toast.success("Meta removida.");
       if (podeVerRelatorios) refetchRelatorios();
+    if (painelTvOpen && podeConsultarSetores) refetchContasTv();
     },
   });
 
@@ -800,8 +825,50 @@ export default function FabricaFaturamento() {
     if (filtroFilaRapida === "devolvidas") {
       return contasListaBruta.filter((c: any) => c.statusSetor === "devolvido_erro");
     }
+    if (filtroFilaRapida === "guia_vencida_25d") {
+      return contasListaBruta.filter(
+        (c: any) => calcularAlertasPrazoContaFabrica(c).guiaVencida25Dias
+      );
+    }
+    if (filtroFilaRapida === "sla_60h_estourado") {
+      return contasListaBruta.filter(
+        (c: any) => calcularAlertasPrazoContaFabrica(c).prazoFaturamento60hEstourado
+      );
+    }
     return contasListaBruta;
   }, [contasListaBruta, filtroFilaRapida, meuPerfil?.usuarioId]);
+
+  const resumoPrazosSetor = useMemo(() => {
+    let guiasVencidas25d = 0;
+    let guiasEmAtencao20a25d = 0;
+    let guiasNoPrazo25d = 0;
+    let sla60hEstourado = 0;
+    let sla60hEmAtencao = 0;
+    let sla60hNoPrazo = 0;
+
+    for (const c of contasListaBruta) {
+      const a = calcularAlertasPrazoContaFabrica(c);
+      if (!a.guiaEntregueConvenio && a.possuiDataAlta) {
+        if (a.guiaVencida25Dias) guiasVencidas25d++;
+        else if (a.guiaEmAlertaPreventivo) guiasEmAtencao20a25d++;
+        else guiasNoPrazo25d++;
+      }
+      if (a.contaPendenteFaturamento && a.possuiDataRecebimentoSafatle) {
+        if (a.prazoFaturamento60hEstourado) sla60hEstourado++;
+        else if (a.prazoFaturamento60hEmAlerta) sla60hEmAtencao++;
+        else sla60hNoPrazo++;
+      }
+    }
+
+    return {
+      guiasVencidas25d,
+      guiasEmAtencao20a25d,
+      guiasNoPrazo25d,
+      sla60hEstourado,
+      sla60hEmAtencao,
+      sla60hNoPrazo,
+    };
+  }, [contasListaBruta]);
 
   if (!perfilValido) {
     return (
@@ -828,6 +895,23 @@ export default function FabricaFaturamento() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        <FabricaPainelTvModal
+          open={painelTvOpen}
+          onClose={() => setPainelTvOpen(false)}
+          competencia={competenciaRelatorio}
+          hospitalNomeFiltro={
+            hospitalFiltro !== "todos"
+              ? hospitais.find((h: any) => String(h.id) === hospitalFiltro)?.nome ||
+                "Hospital Filtrado"
+              : "Todos os Hospitais"
+          }
+          setoresVisiveis={setoresVisiveis}
+          resumoSetores={resumoSetores}
+          relatoriosData={relatoriosData}
+          contasEsteira={listagemTvData?.contas || contasListaBruta}
+          onRefresh={recarregarTudo}
+        />
+
         {/* Cabeçalho Principal */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b pb-4">
           <div className="flex items-center gap-3">
@@ -888,6 +972,17 @@ export default function FabricaFaturamento() {
               >
                 <BarChart3 className="h-4 w-4" />
                 Relatórios & Metas Safatle
+              </Button>
+            )}
+            {podeConsultarSetores && (
+              <Button
+                variant="outline"
+                onClick={() => setPainelTvOpen(true)}
+                className="gap-2 border-blue-500 text-blue-700 bg-blue-50/70 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 font-semibold"
+                title="Abre o Painel de Gestão à Vista em Tela Cheia para TV com Metas, Setores e Convênios"
+              >
+                <Tv className="h-4 w-4" />
+                Modo Painel TV
               </Button>
             )}
             {podeGerenciarEquipe && (
@@ -1053,9 +1148,9 @@ export default function FabricaFaturamento() {
           </div>
         )}
 
-        {/* ============================================================
+        {/* ====
             ABA 1: CADASTRO INICIAL — RECEPÇÃO DE CONTAS
-           ============================================================ */}
+           ==== */}
         {abaPrincipal === "recepcao" && podeRecepcionar && (
           <div className="grid lg:grid-cols-3 gap-6">
             <Card className="lg:col-span-2 border-t-4 border-t-primary shadow-sm">
@@ -1569,9 +1664,9 @@ export default function FabricaFaturamento() {
           </div>
         )}
 
-        {/* ============================================================
+        {/* ====
             ABA 2: ESTEIRA OPERACIONAL DOS 6 SETORES
-           ============================================================ */}
+           ==== */}
         {abaPrincipal === "ambulatorial" && podeConsultarSetores && (
           <EsteiraAmbulatorialPanel
             hospitais={hospitais}
@@ -1729,6 +1824,145 @@ export default function FabricaFaturamento() {
                   {contasListaBruta.filter((c: any) => c.statusSetor === "devolvido_erro").length})
                 </Button>
               </div>
+
+              {/*Atalhos Extras de Prazo (25d Alta & 60h Safatle) */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={filtroFilaRapida === "guia_vencida_25d" ? "destructive" : "outline"}
+                  className={`h-7 text-xs gap-1 ${
+                    filtroFilaRapida !== "guia_vencida_25d" &&
+                    resumoPrazosSetor.guiasVencidas25d > 0
+                      ? "border-red-400 text-red-700 bg-red-50/70 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300"
+                      : filtroFilaRapida !== "guia_vencida_25d"
+                        ? "border-blue-300 text-blue-700 dark:text-blue-300"
+                        : ""
+                  }`}
+                  onClick={() => setFiltroFilaRapida("guia_vencida_25d")}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Vencimento Guia &gt; {PRAZO_VENCIMENTO_GUIA_DIAS}d Alta (
+                  {resumoPrazosSetor.guiasVencidas25d})
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={filtroFilaRapida === "sla_60h_estourado" ? "destructive" : "outline"}
+                  className={`h-7 text-xs gap-1 ${
+                    filtroFilaRapida !== "sla_60h_estourado" &&
+                    resumoPrazosSetor.sla60hEstourado > 0
+                      ? "border-red-400 text-red-700 bg-red-50/70 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300"
+                      : ""
+                  }`}
+                  onClick={() => setFiltroFilaRapida("sla_60h_estourado")}
+                >
+                  <Timer className="h-3.5 w-3.5" />
+                  Prazo Faturamento &gt; {PRAZO_FATURAMENTO_SAFATLE_HORAS}h Safatle (
+                  {resumoPrazosSetor.sla60hEstourado})
+                </Button>
+              </div>
+
+              {/* Painel de Gestão de Prazos do Faturamento (Vencimento Guia 25d da Alta & SLA 60h Chegada Safatle) */}
+              {contasListaBruta.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                  <div
+                    onClick={() =>
+                      setFiltroFilaRapida(
+                        filtroFilaRapida === "guia_vencida_25d" ? "todas" : "guia_vencida_25d"
+                      )
+                    }
+                    className={`cursor-pointer rounded-lg border px-3.5 py-2.5 text-xs transition-all flex items-center justify-between gap-3 ${
+                      resumoPrazosSetor.guiasVencidas25d > 0
+                        ? "bg-red-50/70 dark:bg-red-950/25 border-red-300 dark:border-red-800"
+                        : "bg-blue-50/60 dark:bg-blue-950/25 border-blue-200 dark:border-blue-800"
+                    }`}
+                  >
+                    <div className="space-y-0.5">
+                      <div className="font-semibold flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
+                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                        Prazo de Vencimento das Guias ({PRAZO_VENCIMENTO_GUIA_DIAS} dias da Data Alta)
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        A guia não pode ficar sem entregar em {PRAZO_VENCIMENTO_GUIA_DIAS} dias após a alta hospitalar.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Badge
+                        variant="outline"
+                        className="bg-blue-100/80 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-200 text-[10px]"
+                      >
+                        No prazo: {resumoPrazosSetor.guiasNoPrazo25d}
+                      </Badge>
+                      {resumoPrazosSetor.guiasEmAtencao20a25d > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]"
+                        >
+                          20–25d: {resumoPrazosSetor.guiasEmAtencao20a25d}
+                        </Badge>
+                      )}
+                      <Badge
+                        variant={resumoPrazosSetor.guiasVencidas25d > 0 ? "destructive" : "secondary"}
+                        className="text-[10px]"
+                      >
+                        Vencidas (&gt;{PRAZO_VENCIMENTO_GUIA_DIAS}d): {resumoPrazosSetor.guiasVencidas25d}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() =>
+                      setFiltroFilaRapida(
+                        filtroFilaRapida === "sla_60h_estourado" ? "todas" : "sla_60h_estourado"
+                      )
+                    }
+                    className={`cursor-pointer rounded-lg border px-3.5 py-2.5 text-xs transition-all flex items-center justify-between gap-3 ${
+                      resumoPrazosSetor.sla60hEstourado > 0
+                        ? "bg-red-50/70 dark:bg-red-950/25 border-red-300 dark:border-red-800"
+                        : "bg-slate-50/80 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800"
+                    }`}
+                  >
+                    <div className="space-y-0.5">
+                      <div
+                        className={`font-semibold flex items-center gap-1.5 ${
+                          resumoPrazosSetor.sla60hEstourado > 0
+                            ? "text-red-700 dark:text-red-400"
+                            : "text-foreground"
+                        }`}
+                      >
+                        <Timer className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        Prazo de Faturamento Safatle ({PRAZO_FATURAMENTO_SAFATLE_HORAS}h da chegada na Safatle)
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Tempo máximo de {PRAZO_FATURAMENTO_SAFATLE_HORAS} horas a partir da chegada na Safatle para fazer a conta.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Badge
+                        variant="outline"
+                        className="bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 text-[10px]"
+                      >
+                        Até {PRAZO_FATURAMENTO_SAFATLE_HORAS}h: {resumoPrazosSetor.sla60hNoPrazo}
+                      </Badge>
+                      {resumoPrazosSetor.sla60hEmAtencao > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]"
+                        >
+                          48–60h: {resumoPrazosSetor.sla60hEmAtencao}
+                        </Badge>
+                      )}
+                      <Badge
+                        variant={resumoPrazosSetor.sla60hEstourado > 0 ? "destructive" : "secondary"}
+                        className="text-[10px]"
+                      >
+                        Acima de {PRAZO_FATURAMENTO_SAFATLE_HORAS}h: {resumoPrazosSetor.sla60hEstourado}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Barra de Filtros */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3">
@@ -1936,12 +2170,13 @@ export default function FabricaFaturamento() {
                           (s) => s.id === conta.setorAtual
                         );
                         const isChecked = selecionadas.includes(conta.id);
+                        const alertaPrazo = calcularAlertasPrazoContaFabrica(conta);
 
                         return (
                           <TableRow
                             key={conta.id}
                             className={
-                              conta.statusSetor === "devolvido_erro"
+                              alertaPrazo.deveDestacarLinhaComoErro
                                 ? "bg-red-50/60 dark:bg-red-950/20"
                                 : ""
                             }
@@ -1988,6 +2223,32 @@ export default function FabricaFaturamento() {
                                   </Badge>
                                 )}
                               </div>
+                              {alertaPrazo.guiaVencida25Dias && (
+                                <div className="mt-1 text-xs text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                  Alerta Venc. Guia ({PRAZO_VENCIMENTO_GUIA_DIAS}d):{" "}
+                                  {alertaPrazo.diasDesdeAlta}d pós-alta (venceu em{" "}
+                                  {alertaPrazo.dataVencimentoGuiaFormatada}) • Parada há{" "}
+                                  {alertaPrazo.tempoParadoSetorFormatado} no setor
+                                </div>
+                              )}
+                              {alertaPrazo.guiaEmAlertaPreventivo && (
+                                <div className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                                  <Clock className="h-3.5 w-3.5 shrink-0" />
+                                  Atenção Venc. Guia: {alertaPrazo.diasDesdeAlta}d pós-alta (restam{" "}
+                                  {alertaPrazo.diasRestantesGuia}d p/ {PRAZO_VENCIMENTO_GUIA_DIAS}d) •{" "}
+                                  {alertaPrazo.tempoParadoSetorFormatado} no setor
+                                </div>
+                              )}
+                              {alertaPrazo.prazoFaturamento60hEstourado && (
+                                <div className="mt-1 text-xs text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                  Prazo Faturamento ({PRAZO_FATURAMENTO_SAFATLE_HORAS}h) excedido:{" "}
+                                  {alertaPrazo.horasDesdeChegadaSafatle}h desde chegada na Safatle (+
+                                  {alertaPrazo.horasExcedidasFaturamento60h}h além do limite •{" "}
+                                  {alertaPrazo.tempoParadoSetorFormatado} no setor)
+                                </div>
+                              )}
                               {conta.ultimoMotivoRetorno &&
                                 conta.statusSetor === "devolvido_erro" && (
                                   <div className="mt-1 text-xs text-red-600 font-medium flex items-center gap-1">
@@ -2015,11 +2276,55 @@ export default function FabricaFaturamento() {
                               <div>
                                 <span className="text-muted-foreground">Alta:</span>{" "}
                                 {formatDateStr(conta.dataAlta)}
+                                {alertaPrazo.possuiDataAlta && !alertaPrazo.guiaEntregueConvenio && (
+                                  <div className="mt-0.5 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
+                                    Venc. Guia ({PRAZO_VENCIMENTO_GUIA_DIAS}d):{" "}
+                                    {alertaPrazo.dataVencimentoGuiaFormatada}{" "}
+                                    <span
+                                      className={
+                                        alertaPrazo.guiaVencida25Dias
+                                          ? "text-red-600 dark:text-red-400 font-bold"
+                                          : alertaPrazo.guiaEmAlertaPreventivo
+                                            ? "text-amber-600 dark:text-amber-400 font-bold"
+                                            : "text-blue-600 dark:text-blue-400 font-normal"
+                                      }
+                                    >
+                                      (
+                                      {alertaPrazo.guiaVencida25Dias
+                                        ? `${alertaPrazo.diasDesdeAlta}d pós-alta • +${alertaPrazo.diasExcedidosGuia}d`
+                                        : `restam ${alertaPrazo.diasRestantesGuia}d`}
+                                      )
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                               <div>
                                 <span className="text-muted-foreground">Safatle:</span>{" "}
                                 <span className="font-medium">
                                   {formatDateStr(conta.dataRecebimentoSafatle)}
+                                  {alertaPrazo.possuiDataRecebimentoSafatle &&
+                                    alertaPrazo.contaPendenteFaturamento && (
+                                      <div
+                                        className={`mt-0.5 text-[11px] font-semibold ${
+                                          alertaPrazo.prazoFaturamento60hEstourado
+                                            ? "text-red-600 dark:text-red-400"
+                                            : alertaPrazo.prazoFaturamento60hEmAlerta
+                                              ? "text-amber-600 dark:text-amber-400"
+                                              : "text-blue-600 dark:text-blue-400"
+                                        }`}
+                                      >
+                                        Prazo {PRAZO_FATURAMENTO_SAFATLE_HORAS}h:{" "}
+                                        {alertaPrazo.horasDesdeChegadaSafatle}h/
+                                        {PRAZO_FATURAMENTO_SAFATLE_HORAS}h{" "}
+                                        <span className="font-normal">
+                                          (
+                                          {alertaPrazo.prazoFaturamento60hEstourado
+                                            ? `+${alertaPrazo.horasExcedidasFaturamento60h}h atraso`
+                                            : `restam ${alertaPrazo.horasRestantesFaturamento60h}h`}
+                                          )
+                                        </span>
+                                      </div>
+                                    )}
                                 </span>
                               </div>
                             </TableCell>
@@ -2032,6 +2337,24 @@ export default function FabricaFaturamento() {
                                 >
                                   {setorInfo?.curto || conta.setorAtual}
                                 </Badge>
+                                {!alertaPrazo.guiaEntregueConvenio && (
+                                  <div>
+                                    <Badge
+                                      variant={
+                                        alertaPrazo.possuiAlertaCriticoPrazo
+                                          ? "destructive"
+                                          : "outline"
+                                      }
+                                      className={`text-[10px] ${
+                                        !alertaPrazo.possuiAlertaCriticoPrazo
+                                          ? "border-blue-300 text-blue-700 bg-blue-50/60 dark:bg-blue-950/40 dark:text-blue-300"
+                                          : ""
+                                      }`}
+                                    >
+                                      Parada: {alertaPrazo.tempoParadoSetorFormatado}
+                                    </Badge>
+                                  </div>
+                                )}
                                 <div className="flex items-center gap-1.5">
                                   {conta.statusSetor === "devolvido_erro" ? (
                                     <Badge variant="destructive" className="text-[10px]">
@@ -2598,9 +2921,9 @@ export default function FabricaFaturamento() {
           </Card>
         )}
 
-        {/* ============================================================
+        {/* ====
             ABA 3: RELATÓRIOS GERENCIAIS SAFATLE (PRODUÇÃO, METAS, ERROS, SLA)
-           ============================================================ */}
+           ==== */}
         {abaPrincipal === "relatorios" && (
           <div className="space-y-6">
             <Card>
@@ -2660,6 +2983,28 @@ export default function FabricaFaturamento() {
               </CardHeader>
 
               <CardContent>
+                <div className="mb-4 flex items-center justify-between rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/30 px-4 py-3">
+                  <div className="flex items-center gap-2.5 text-xs">
+                    <Tv className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <div>
+                      <span className="font-bold text-foreground">
+                        Modo Painel TV — Gestão à Vista para o Setor:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        Exibe em tela cheia de alto contraste as Metas, Quantidade de Contas por Setor e Distribuição por Convênio com atualização e rotação automáticas.
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setPainelTvOpen(true)}
+                    className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shrink-0"
+                  >
+                    <Tv className="h-4 w-4" />
+                    Abrir Painel TV (Tela Cheia)
+                  </Button>
+                </div>
+
                 {/* KPIs Resumo da Competência */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                   <div className="rounded-xl border p-4 bg-slate-50/50 dark:bg-slate-900/30">
@@ -3063,9 +3408,9 @@ export default function FabricaFaturamento() {
           </div>
         )}
 
-        {/* ============================================================
+        {/* ====
             ABA 4: EQUIPE & PERMISSÕES POR SETOR / HOSPITAIS
-           ============================================================ */}
+           ==== */}
         {abaPrincipal === "equipe" && podeGerenciarEquipe && (
           <Card className="shadow-sm border-t-4 border-t-primary">
             <CardHeader>
@@ -3198,9 +3543,9 @@ export default function FabricaFaturamento() {
         )}
       </div>
 
-      {/* ============================================================
+      {/* ====
           MODAL 1: IMPORTAR XML TISS NA CONTA (SUPORTA 2 ARQUIVOS: CONTA + HONORÁRIOS)
-         ============================================================ */}
+         ==== */}
       <Dialog open={modalXmlOpen && podeAcessarSetorVisivelFabrica(acessoFabrica, contaAlvoXml?.setorAtual)} onOpenChange={setModalXmlOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -3366,9 +3711,9 @@ export default function FabricaFaturamento() {
         </DialogContent>
       </Dialog>
 
-      {/* ============================================================
+      {/* ====
           MODAL 5: CONFIGURAR PERFIL E SETORES DO COLABORADOR
-         ============================================================ */}
+         ==== */}
       <Dialog open={modalPerfilOpen && podeGerenciarEquipe} onOpenChange={setModalPerfilOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -3500,9 +3845,9 @@ export default function FabricaFaturamento() {
         </DialogContent>
       </Dialog>
 
-      {/* ============================================================
+      {/* ====
           MODAL 2: DEVOLVER CONTA COM ERRO PARA O FATURAMENTO
-         ============================================================ */}
+         ==== */}
       <Dialog open={modalErroOpen && podeAcessarSetorVisivelFabrica(acessoFabrica, contaAlvoErro?.setorAtual)} onOpenChange={setModalErroOpen}>
         <DialogContent>
           <DialogHeader>
@@ -3579,9 +3924,9 @@ export default function FabricaFaturamento() {
         </DialogContent>
       </Dialog>
 
-      {/* ============================================================
+      {/* ====
           MODAL 3: ENVIO AUTOMÁTICO DO XML AO CONVÊNIO (SETOR 5 -> SETOR 6)
-         ============================================================ */}
+         ==== */}
       <Dialog open={modalEnvioOpen && podeAcessarSetorVisivelFabrica(acessoFabrica, contaAlvoEnvio?.setorAtual)} onOpenChange={setModalEnvioOpen}>
         <DialogContent>
           <DialogHeader>
@@ -3653,9 +3998,9 @@ export default function FabricaFaturamento() {
         </DialogContent>
       </Dialog>
 
-      {/* ============================================================
+      {/* ====
           MODAL 4: CADASTRAR NOVA META DE FATURAMENTO
-         ============================================================ */}
+         ==== */}
       <Dialog open={modalMetaOpen && podeVerRelatorios} onOpenChange={setModalMetaOpen}>
         <DialogContent>
           <DialogHeader>
