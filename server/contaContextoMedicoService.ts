@@ -1,4 +1,13 @@
 import { createHash } from "node:crypto";
+import {
+  comporBlocosHonorarios,
+  normalizarProcedimentosHonorarios,
+  ordenarHonorarios,
+  hashHonorarios,
+  composicaoHonorariosValida,
+  versaoComposicaoHonorarios,
+  type ComposicaoHonorarios,
+} from "./contaHonorariosComposicao";
 import type {
   CandidatoGabarito,
   ContaContextoMedicoResultado,
@@ -106,6 +115,8 @@ export interface FonteMedicaPersistida {
   registros: number;
   codigosDistintos: number;
   procedimentos: readonly ProcedimentoMedicoInfo[];
+  /** Composição completa da revisão vigente; apenas hashes e contagens. */
+  composicao?: ComposicaoHonorarios;
   criadoEm?: Date | string;
 }
 
@@ -407,6 +418,59 @@ export function versaoItensHospitalares(
   );
 }
 
+function identidadeReferenciaHospitalar(
+  referencia: ReferenciaGuiaHospitalar
+): string {
+  return hashHonorarios({
+    guiaPrestador: codigoNormalizado(referencia.numeroGuiaPrestador),
+    guiaOperadora: codigoNormalizado(referencia.numeroGuiaOperadora),
+    beneficiario: normalizarBeneficiario(referencia.beneficiario),
+    datas: [
+      ...new Set(referencia.datasExecucao.map(diaCivil).filter(Boolean)),
+    ].sort(),
+  });
+}
+
+function versaoSnapshotHonorarios(
+  hospital: SnapshotHospitalarAutorizado
+): string {
+  return hashHonorarios({
+    scope: hospital.scope,
+    itens: versaoItensHospitalares(hospital.itensHospitalares),
+    referencias: hospital.referenciasGuias
+      .map(identidadeReferenciaHospitalar)
+      .sort(),
+  });
+}
+
+/** Revalida identidade e composição sem reindexar ou recuperar conteúdo histórico. */
+function fontesDoSnapshotAtual(
+  fontes: readonly FonteMedicaPersistida[],
+  hospital: SnapshotHospitalarAutorizado
+): FonteMedicaPersistida[] {
+  const versao = versaoSnapshotHonorarios(hospital);
+  const identidades = new Set(
+    hospital.referenciasGuias.map(identidadeReferenciaHospitalar)
+  );
+  const arquivosInvalidos = new Set<number>();
+  for (const fonte of fontes) {
+    if (
+      fonte.composicao &&
+      (!composicaoHonorariosValida(fonte.composicao, fonte.procedimentos) ||
+        fonte.versaoSemantica !==
+          versaoComposicaoHonorarios(fonte.composicao) ||
+        fonte.versaoSnapshotHospitalar !== versao ||
+        !identidades.has(fonte.composicao.identidadeHospitalar))
+    )
+      arquivosInvalidos.add(fonte.arquivoMedicoId);
+    // Uma fonte legada consolidada pode esconder mistura intratupla; sem identidade
+    // registrada, só uma referência hospitalar permite uma leitura não ambígua.
+    if (!fonte.composicao && hospital.referenciasGuias.length !== 1)
+      arquivosInvalidos.add(fonte.arquivoMedicoId);
+  }
+  return fontes.filter(fonte => !arquivosInvalidos.has(fonte.arquivoMedicoId));
+}
+
 function versaoGabarito(gabarito: GabaritoManualInformativo): string {
   return hashSemantico({
     id: gabarito.padraoId,
@@ -538,26 +602,7 @@ function estadoContextoAtual(
 function fontesProcedimentosSemanticos(
   guia: GuiaHonorariosParseada
 ): readonly ProcedimentoMedicoInfo[] {
-  return guia.procedimentos
-    .map(procedimento => ({
-      codigo: codigoNormalizado(procedimento.codigo),
-      descricao: procedimento.descricao.trim(),
-      dataExecucao: diaCivil(procedimento.dataExecucao),
-      sequencial: procedimento.sequencial
-        ? procedimento.sequencial.trim()
-        : null,
-      profissionais: procedimento.profissionais
-        .map(profissional => ({
-          nome: profissional.nome.trim(),
-          conselho: profissional.conselho ? profissional.conselho.trim() : null,
-          numeroConselho: profissional.numeroConselho
-            ? profissional.numeroConselho.trim()
-            : null,
-        }))
-        .sort((a, b) => stable(a).localeCompare(stable(b))),
-    }))
-    .filter(procedimento => Boolean(procedimento.codigo))
-    .sort((a, b) => stable(a).localeCompare(stable(b)));
+  return normalizarProcedimentosHonorarios(guia.procedimentos);
 }
 
 function referenciaGuiaMedica(guia: GuiaHonorariosParseada): string | null {
@@ -612,6 +657,18 @@ function correlacionarGuia(
         ? codigoNormalizado(referencia.numeroGuiaOperadora)
         : codigoNormalizado(referencia.numeroGuiaPrestador);
       if (!candidato || candidato !== referenciaBusca) return false;
+      const operadoraMedica = codigoNormalizado(
+        guia.correlacao.numeroGuiaOperadora
+      );
+      const operadoraHospitalar = codigoNormalizado(
+        referencia.numeroGuiaOperadora
+      );
+      if (
+        operadoraMedica &&
+        operadoraHospitalar &&
+        operadoraMedica !== operadoraHospitalar
+      )
+        return false;
       const hospitalBeneficiario = normalizarBeneficiario(
         referencia.beneficiario
       );
@@ -632,6 +689,11 @@ function correlacionarGuia(
         return false;
       return true;
     });
+    if (candidatos.length > 1)
+      erro(
+        "PRECONDICAO",
+        "A guia médica possui identidade hospitalar ambígua."
+      );
     return candidatos.length === 1 ? candidatos[0] : null;
   };
 
@@ -779,86 +841,98 @@ export function criarContaContextoMedicoService(
     const avisos = new Set<string>();
     let correlacionadas = 0;
     let criadas = 0;
-    const vistos = new Set<string>();
-    type CorrelacaoSemantica = {
-      guiaPrestador: string;
-      guiaOperadora: string;
-      guiaPrincipal: string;
-      dataAtendimento: string | null;
-    };
-    const gruposPorGuiaReferencia = new Map<
+    const snapshotHash = versaoSnapshotHonorarios(hospital);
+    const grupos = new Map<
       string,
       {
-        procedimentos: ProcedimentoMedicoInfo[];
-        correlacoes: CorrelacaoSemantica[];
+        guiaReferencia: string;
+        blocos: Map<string, readonly ProcedimentoMedicoInfo[]>;
       }
     >();
+    // Preflight de todas as guias antes da primeira escrita (inclusive manual).
     for (const guia of guias) {
       const match = correlacionarGuia(guia, hospital.referenciasGuias);
-      if (!match) continue;
       const procedimentos = fontesProcedimentosSemanticos(guia);
-      if (!procedimentos.length) continue;
-      const correlacao: CorrelacaoSemantica = {
-        guiaPrestador: codigoNormalizado(guia.correlacao.numeroGuiaPrestador),
-        guiaOperadora: codigoNormalizado(guia.correlacao.numeroGuiaOperadora),
-        guiaPrincipal: codigoNormalizado(
-          guia.correlacao.guiaSolicitacaoInternacao
-        ),
-        dataAtendimento: diaCivil(guia.correlacao.dataAtendimento),
-      };
-      const versaoBloco = hashSemantico({
-        guiaReferencia: match.guiaReferencia,
+      if (!match || !procedimentos.length)
+        erro(
+          "PRECONDICAO",
+          "O XML médico possui guia sem correspondência única com a conta hospitalar."
+        );
+      const identidade = identidadeReferenciaHospitalar(match.referencia);
+      const guiaReferencia =
+        codigoNormalizado(match.referencia.numeroGuiaPrestador) ||
+        codigoNormalizado(match.referencia.numeroGuiaOperadora);
+      const hash = hashHonorarios({
+        identidade,
         procedimentos,
-        correlacao,
+        correlacao: {
+          guiaPrestador: codigoNormalizado(guia.correlacao.numeroGuiaPrestador),
+          guiaOperadora: codigoNormalizado(guia.correlacao.numeroGuiaOperadora),
+          guiaPrincipal: codigoNormalizado(
+            guia.correlacao.guiaSolicitacaoInternacao
+          ),
+          beneficiario: normalizarBeneficiario(guia.correlacao.numeroCarteira),
+          codigoPrestador: codigoNormalizado(guia.correlacao.codigoPrestador),
+          dataAtendimento: diaCivil(guia.correlacao.dataAtendimento),
+          dataEmissaoGuia: diaCivil(guia.correlacao.dataEmissaoGuia),
+        },
       });
-      const dedupe = `${match.guiaReferencia}\u0000${versaoBloco}`;
-      if (vistos.has(dedupe)) continue;
-      vistos.add(dedupe);
-      if (match.avisoData) avisos.add(match.avisoData);
-      const grupo = gruposPorGuiaReferencia.get(match.guiaReferencia) ?? {
-        procedimentos: [],
-        correlacoes: [],
+      const grupo = grupos.get(identidade) ?? {
+        guiaReferencia,
+        blocos: new Map(),
       };
-      grupo.procedimentos.push(...procedimentos);
-      grupo.correlacoes.push(correlacao);
-      gruposPorGuiaReferencia.set(match.guiaReferencia, grupo);
+      grupo.blocos.set(hash, procedimentos); // duplicação do bloco, nunca da ocorrência interna
+      grupos.set(identidade, grupo);
+      if (match.avisoData) avisos.add(match.avisoData);
     }
-
-    for (const [guiaReferencia, grupo] of gruposPorGuiaReferencia.entries()) {
-      const procedimentos = [...grupo.procedimentos].sort((a, b) =>
-        stable(a).localeCompare(stable(b))
-      );
-      const semantic =
-        grupo.correlacoes.length === 1
-          ? {
-              guiaReferencia,
-              procedimentos,
-              // Não persiste a correlação privada; só estabiliza mudança semântica relevante.
-              correlacao: grupo.correlacoes[0],
-            }
-          : {
-              guiaReferencia,
-              procedimentos,
-              correlacao: grupo.correlacoes[0],
-              correlacoes: grupo.correlacoes,
-            };
-      const versaoSemantica = hashSemantico(semantic);
+    const identidadesRevisao = [...grupos.keys()].sort();
+    const preparados = identidadesRevisao.map(identidadeHospitalar => {
+      const grupo = grupos.get(identidadeHospitalar)!;
+      const procedimentos = comporBlocosHonorarios([...grupo.blocos.values()]);
+      return {
+        grupo,
+        procedimentos,
+        base: {
+          formato: "honorarios-v1" as const,
+          identidadeHospitalar,
+          identidadesRevisao,
+          blocos: ordenarHonorarios(
+            [...grupo.blocos].map(([hash, ps]) => ({
+              hash,
+              registros: ps.length,
+            }))
+          ),
+          hashProcedimentos: hashHonorarios(
+            normalizarProcedimentosHonorarios(procedimentos)
+          ),
+        },
+      };
+    });
+    // A revisão cobre TODAS as identidades e blocos da chamada/arquivo neste scope.
+    // Remover um bloco ou identidade altera a revisão, mesmo com lote/snapshot iguais.
+    const revisaoArquivo = hashHonorarios({
+      scope,
+      arquivoMedicoId,
+      loteImportacaoId: proveniencia?.loteImportacaoId ?? null,
+      snapshotHash,
+      grupos: preparados.map(p => p.base),
+    });
+    for (const { grupo, procedimentos, base } of preparados) {
+      const composicao: ComposicaoHonorarios = { ...base, revisaoArquivo };
+      const versaoSemantica = versaoComposicaoHonorarios(composicao);
       correlacionadas += 1;
       const insertion = await deps.repositorio.inserirFonteSeAusente({
         scope,
         arquivoMedicoId,
         loteImportacaoId: proveniencia?.loteImportacaoId ?? null,
         loteClaim: proveniencia?.loteClaim,
-        guiaReferencia,
+        guiaReferencia: grupo.guiaReferencia,
         versaoSemantica,
-        versaoSnapshotHospitalar: versaoItensHospitalares(
-          hospital.itensHospitalares
-        ),
+        versaoSnapshotHospitalar: snapshotHash,
         registros: procedimentos.length,
-        codigosDistintos: new Set(
-          procedimentos.map(procedimento => procedimento.codigo)
-        ).size,
+        codigosDistintos: new Set(procedimentos.map(p => p.codigo)).size,
         procedimentos,
+        composicao,
       });
       if (insertion.criada) criadas += 1;
     }
@@ -882,7 +956,13 @@ export function criarContaContextoMedicoService(
             scope,
             contexto.padraoId
           )));
-    return { hospital, fontes, gabaritos, contexto, gabaritoContexto };
+    return {
+      hospital,
+      fontes: fontesDoSnapshotAtual(fontes, hospital),
+      gabaritos,
+      contexto,
+      gabaritoContexto,
+    };
   }
 
   return {
@@ -914,7 +994,7 @@ export function criarContaContextoMedicoService(
             )));
       const current = {
         hospital,
-        fontes,
+        fontes: fontesDoSnapshotAtual(fontes, hospital),
         gabaritos,
         contexto,
         gabaritoContexto,
@@ -1144,7 +1224,9 @@ export function criarContaContextoMedicoService(
           hospital: SnapshotHospitalarAutorizado;
         }
       >();
-      const escoposPermitidos = input.escoposHospitalaresPermitidos?.map(normalizarScopeContaMedica);
+      const escoposPermitidos = input.escoposHospitalaresPermitidos?.map(
+        normalizarScopeContaMedica
+      );
       for (const candidato of candidatos) {
         if (
           candidato.estabelecimentoId !== estabelecimentoId ||
@@ -1152,14 +1234,19 @@ export function criarContaContextoMedicoService(
         )
           continue;
         const scope = normalizarScopeContaMedica(candidato);
-        if (escoposPermitidos && !escoposPermitidos.some(permitido =>
-          permitido.estabelecimentoId === scope.estabelecimentoId &&
-          permitido.convenioId === scope.convenioId &&
-          permitido.arquivoHospitalId === scope.arquivoHospitalId &&
-          permitido.numeroConta === scope.numeroConta &&
-          permitido.numeroLote === scope.numeroLote &&
-          permitido.competencia === scope.competencia
-        )) continue;
+        if (
+          escoposPermitidos &&
+          !escoposPermitidos.some(
+            permitido =>
+              permitido.estabelecimentoId === scope.estabelecimentoId &&
+              permitido.convenioId === scope.convenioId &&
+              permitido.arquivoHospitalId === scope.arquivoHospitalId &&
+              permitido.numeroConta === scope.numeroConta &&
+              permitido.numeroLote === scope.numeroLote &&
+              permitido.competencia === scope.competencia
+          )
+        )
+          continue;
         const hospital = await snapshot(scope);
         if (!hospital) continue;
         const key = [
@@ -1315,6 +1402,7 @@ export function criarContaContextoMedicoService(
       const versaoItensAtual = versaoItensHospitalares(
         current.hospital.itensHospitalares
       );
+      const versaoSnapshotAtual = versaoSnapshotHonorarios(current.hospital);
       const abrangencia = current.hospital.setorInformado
         ? "conta_inteira"
         : "conta_inteira_sem_setor";
@@ -1333,6 +1421,24 @@ export function criarContaContextoMedicoService(
           erro(
             "CONCORRENCIA",
             "O contexto ainda não possui a revisão esperada; atualize a tela."
+          );
+        }
+        // Releitura fechada do conjunto completo. Não promove uma evidência
+        // prévia se a publicação mudou durante a preparação da confirmação.
+        const revalidado = await estado(scope);
+        const gabaritoRevalidado = await deps.repositorio.obterGabaritoManual(
+          scope,
+          padraoId
+        );
+        if (
+          stable(fontesVersoes(revalidado.fontes)) !== stable(fontesAtuais) ||
+          versaoSnapshotHonorarios(revalidado.hospital) !== versaoSnapshotAtual ||
+          !gabaritoRevalidado ||
+          versaoGabarito(gabaritoRevalidado) !== versaoPadraoAtual
+        ) {
+          erro(
+            "CONCORRENCIA",
+            "A evidência médica mudou durante a confirmação; atualize a tela."
           );
         }
         const proximaRevisao = (existente?.revisao ?? 0) + 1;

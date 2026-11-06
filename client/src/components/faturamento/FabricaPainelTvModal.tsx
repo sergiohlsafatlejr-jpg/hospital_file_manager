@@ -3,6 +3,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
+  descreverAmostraPainelTv,
+  LIMITE_AMOSTRA_TV,
+  mensagemEstadoPainelTv,
+  numeroAutoritativo,
+  producaoMensalPainelTv,
+  realizadoMetaPainelTv,
+  valorContaPainelTv,
+  type EstadoDadosPainelTv,
+} from "@/lib/fabricaPainelTvDados";
+import {
   calcularAlertasPrazoContaFabrica,
   PRAZO_FATURAMENTO_SAFATLE_HORAS,
   PRAZO_VENCIMENTO_GUIA_DIAS,
@@ -47,12 +57,16 @@ interface FabricaPainelTvModalProps {
   resumoSetores: any;
   relatoriosData: any;
   contasEsteira: any[];
+  totalContasAmostra?: number;
+  estadoResumo?: EstadoDadosPainelTv;
+  estadoRelatorios?: EstadoDadosPainelTv;
+  estadoContas?: EstadoDadosPainelTv;
   onRefresh: () => void;
 }
 
 function formatCurrency(val: number | string | null | undefined) {
-  const n = typeof val === "string" ? parseFloat(val) : val;
-  if (!n || isNaN(n)) return "R$ 0,00";
+  const n = numeroAutoritativo(val);
+  if (n === null) return "Indisponível";
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
@@ -72,11 +86,21 @@ export default function FabricaPainelTvModal({
   competencia,
   hospitalNomeFiltro,
   setoresVisiveis,
-  resumoSetores,
-  relatoriosData,
-  contasEsteira,
+  resumoSetores: resumoRecebido,
+  relatoriosData: relatoriosRecebidos,
+  contasEsteira: contasRecebidas,
+  totalContasAmostra,
+  estadoResumo = resumoRecebido ? "pronto" : "indisponivel",
+  estadoRelatorios = relatoriosRecebidos ? "pronto" : "indisponivel",
+  estadoContas = "pronto",
   onRefresh,
 }: FabricaPainelTvModalProps) {
+  const resumoSetores = estadoResumo === "pronto" ? resumoRecebido : undefined;
+  const relatoriosData = estadoRelatorios === "pronto" ? relatoriosRecebidos : undefined;
+  const contasEsteira = useMemo(() => estadoContas === "pronto" ? contasRecebidas : [], [estadoContas, contasRecebidas]);
+  const descricaoAmostra = estadoContas === "pronto"
+    ? descreverAmostraPainelTv(contasEsteira.length, totalContasAmostra, LIMITE_AMOSTRA_TV)
+    : `AMOSTRA de até ${LIMITE_AMOSTRA_TV} contas: ${mensagemEstadoPainelTv(estadoContas)}.`;
   const [abaTv, setAbaTv] = useState<AbaTv>("visao_geral");
   const [autoRotacao, setAutoRotacao] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -148,6 +172,7 @@ export default function FabricaPainelTvModal({
         devolvidasErro: number;
         vencidas25d: number;
         estouradas60h: number;
+        semDatasPrazo: number;
         contasRecentes: any[];
       }
     >();
@@ -163,8 +188,7 @@ export default function FabricaPainelTvModal({
       if (conta.statusSetor === "devolvido_erro") totalDevolvidasErro++;
 
       const nomeConv = String(conta.convenioNome || "Não informado").trim();
-      const valorConta =
-        Number(conta.valorFaturadoFinal) || Number(conta.valorFaturadoInicial) || 0;
+      const valorConta = valorContaPainelTv(conta);
 
       if (!mapaConvenios.has(nomeConv)) {
         mapaConvenios.set(nomeConv, {
@@ -179,6 +203,7 @@ export default function FabricaPainelTvModal({
           devolvidasErro: 0,
           vencidas25d: 0,
           estouradas60h: 0,
+          semDatasPrazo: 0,
           contasRecentes: [],
         });
       }
@@ -200,6 +225,8 @@ export default function FabricaPainelTvModal({
       if (conta.statusSetor === "devolvido_erro") item.devolvidasErro += 1;
       if (alerta.guiaVencida25Dias) item.vencidas25d += 1;
       if (alerta.prazoFaturamento60hEstourado) item.estouradas60h += 1;
+      if ((!alerta.guiaEntregueConvenio && !alerta.possuiDataAlta) ||
+          (alerta.contaPendenteFaturamento && !alerta.possuiDataRecebimentoSafatle)) item.semDatasPrazo += 1;
 
       if (item.contasRecentes.length < 6) {
         item.contasRecentes.push({
@@ -214,34 +241,20 @@ export default function FabricaPainelTvModal({
       (a, b) => b.totalContas - a.totalContas || b.valorTotal - a.valorTotal
     );
 
-    // Cálculo consolidado de Metas do Mês
-    const metasLista = relatoriosData?.metas || [];
-    const metaTotalContas = metasLista.reduce(
-      (acc: number, m: any) => acc + (Number(m.metaQuantidadeContas) || 0),
-      0
-    );
-    const metaTotalValor = metasLista.reduce(
-      (acc: number, m: any) => acc + (Number(m.metaValorFaturado) || 0),
-      0
-    );
-
-    const realizadoContas =
-      Number(relatoriosData?.resumoPeriodo?.totalFaturadas) ||
-      contasEsteira.filter((c) => c.setorAtual !== "recepcao" && c.setorAtual !== "faturamento")
-        .length;
-    const realizadoValor =
-      Number(relatoriosData?.resumoPeriodo?.valorTotalFaturado) ||
-      Number(resumoSetores?.totalGeralValor) ||
-      0;
-
+    // Produção mensal somente do relatório autorizado, nunca inferida da amostra.
+    const mensal = producaoMensalPainelTv(relatoriosData);
+    const metaTotalContas = mensal.metaContas;
+    const metaTotalValor = mensal.metaValor;
+    const realizadoContas = mensal.contas;
+    const realizadoValor = mensal.valor;
     const percMetaContas =
-      metaTotalContas > 0
+      metaTotalContas !== null && metaTotalContas > 0 && realizadoContas !== null
         ? Math.min(100, Math.round((realizadoContas / metaTotalContas) * 100))
-        : 0;
+        : null;
     const percMetaValor =
-      metaTotalValor > 0
+      metaTotalValor !== null && metaTotalValor > 0 && realizadoValor !== null
         ? Math.min(100, Math.round((realizadoValor / metaTotalValor) * 100))
-        : 0;
+        : null;
 
     return {
       rankingConvenios,
@@ -255,7 +268,7 @@ export default function FabricaPainelTvModal({
       percMetaContas,
       percMetaValor,
     };
-  }, [contasEsteira, relatoriosData, resumoSetores, agora]);
+  }, [contasEsteira, relatoriosData, agora]);
 
   if (!open) return null;
 
@@ -376,18 +389,24 @@ export default function FabricaPainelTvModal({
 
       {/* CONTEÚDO PRINCIPAL DO PAINEL TV */}
       <main className="flex-1 p-6 space-y-6">
+        <div role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-xs text-slate-300 space-y-1">
+          <p>Resumo e produção: total do escopo autorizado de {competencia}, por data de recebimento Safatle, sem filtro de convênio.</p>
+          <p>{descricaoAmostra} Distribuição por convênio, valores de contas e alertas de prazo são somente da AMOSTRA, não totais do escopo.</p>
+          {estadoResumo !== "pronto" && <p>Resumo: {mensagemEstadoPainelTv(estadoResumo)}.</p>}
+          {estadoRelatorios !== "pronto" && <p>Produção, metas e equipe: {mensagemEstadoPainelTv(estadoRelatorios)}. Sem produção inferida da esteira.</p>}
+        </div>
         {/* FAIXA DE KPIs GLOBAIS E ALERTAS DE SLA */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           <div className="rounded-xl bg-slate-900 border border-slate-800 p-4">
             <div className="text-xs font-medium text-slate-400 flex items-center justify-between">
-              <span>TOTAL NA ESTEIRA</span>
+              <span>TOTAL DO ESCOPO • RESUMO</span>
               <Factory className="h-4 w-4 text-blue-400" />
             </div>
             <div className="text-3xl font-black text-white mt-1">
-              {resumoSetores?.totalGeralContas || contasEsteira.length}
+              {numeroAutoritativo(resumoSetores?.totalGeralContas) ?? "Indisponível"}
             </div>
             <div className="text-xs text-slate-400 mt-0.5">
-              {formatCurrency(resumoSetores?.totalGeralValor)} em processamento
+              {formatCurrency(resumoSetores?.totalGeralValor)} • valor agregado do resumo
             </div>
           </div>
 
@@ -397,7 +416,7 @@ export default function FabricaPainelTvModal({
               <CheckCircle2 className="h-4 w-4 text-blue-400" />
             </div>
             <div className="text-3xl font-black text-blue-400 mt-1">
-              {dadosConsolidadosTv.realizadoContas}
+              {dadosConsolidadosTv.realizadoContas ?? "Indisponível"}
             </div>
             <div className="text-xs text-slate-400 mt-0.5">
               Volume: {formatCurrency(dadosConsolidadosTv.realizadoValor)}
@@ -411,17 +430,17 @@ export default function FabricaPainelTvModal({
             </div>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-3xl font-black text-emerald-400">
-                {dadosConsolidadosTv.metaTotalContas > 0
+                {dadosConsolidadosTv.percMetaContas !== null
                   ? `${dadosConsolidadosTv.percMetaContas}%`
-                  : `${dadosConsolidadosTv.realizadoContas}`}
+                  : dadosConsolidadosTv.metaTotalContas === 0 ? "Sem meta" : "Indisponível"}
               </span>
-              {dadosConsolidadosTv.metaTotalContas > 0 && (
+              {dadosConsolidadosTv.metaTotalContas !== null && dadosConsolidadosTv.metaTotalContas > 0 && (
                 <span className="text-xs text-slate-400">
-                  ({dadosConsolidadosTv.realizadoContas}/{dadosConsolidadosTv.metaTotalContas})
+                  ({dadosConsolidadosTv.realizadoContas ?? "Indisponível"}/{dadosConsolidadosTv.metaTotalContas})
                 </span>
               )}
             </div>
-            <Progress value={dadosConsolidadosTv.percMetaContas} className="h-2 mt-2 bg-slate-800" />
+            {dadosConsolidadosTv.percMetaContas !== null && <Progress value={dadosConsolidadosTv.percMetaContas} className="h-2 mt-2 bg-slate-800" />}
           </div>
 
           <div
@@ -440,10 +459,10 @@ export default function FabricaPainelTvModal({
                 dadosConsolidadosTv.totalGuiasVencidas25d > 0 ? "text-red-400" : "text-blue-400"
               }`}
             >
-              {dadosConsolidadosTv.totalGuiasVencidas25d}
+              {estadoContas === "pronto" ? dadosConsolidadosTv.totalGuiasVencidas25d : "Indisponível"}
             </div>
             <div className="text-xs text-slate-300 mt-0.5">
-              Guias acima de {PRAZO_VENCIMENTO_GUIA_DIAS} dias sem entregar
+              AMOSTRA • acima de {PRAZO_VENCIMENTO_GUIA_DIAS} dias sem entregar
             </div>
           </div>
 
@@ -463,10 +482,10 @@ export default function FabricaPainelTvModal({
                 dadosConsolidadosTv.totalSla60hEstourado > 0 ? "text-red-400" : "text-emerald-400"
               }`}
             >
-              {dadosConsolidadosTv.totalSla60hEstourado}
+              {estadoContas === "pronto" ? dadosConsolidadosTv.totalSla60hEstourado : "Indisponível"}
             </div>
             <div className="text-xs text-slate-300 mt-0.5">
-              Acima de {PRAZO_FATURAMENTO_SAFATLE_HORAS}h desde chegada Safatle
+              AMOSTRA • acima de {PRAZO_FATURAMENTO_SAFATLE_HORAS}h desde chegada Safatle
             </div>
           </div>
 
@@ -486,10 +505,10 @@ export default function FabricaPainelTvModal({
                 dadosConsolidadosTv.totalDevolvidasErro > 0 ? "text-red-400" : "text-slate-200"
               }`}
             >
-              {dadosConsolidadosTv.totalDevolvidasErro}
+              {estadoContas === "pronto" ? dadosConsolidadosTv.totalDevolvidasErro : "Indisponível"}
             </div>
             <div className="text-xs text-slate-300 mt-0.5">
-              Contas em retrabalho no setor
+              AMOSTRA • contas em retrabalho no setor
             </div>
           </div>
         </div>
@@ -503,18 +522,11 @@ export default function FabricaPainelTvModal({
             <div>
               <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300 mb-3 flex items-center gap-2">
                 <Layers className="h-4 w-4 text-blue-400" />
-                Quantidade de Contas por Setor da Esteira
+                Quantidade de Contas por Setor • Total do Resumo do Escopo
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                 {setoresVisiveis.map((setor) => {
-                  const dados = resumoSetores?.porSetor?.[setor.id] || {
-                    totalContas: 0,
-                    devolvidasErro: 0,
-                    emAndamento: 0,
-                    emFila: 0,
-                    valorTotal: 0,
-                    mediaHorasNoSetor: 0,
-                  };
+                  const dados = resumoSetores?.porSetor?.[setor.id];
                   const Icon = setor.icon;
                   return (
                     <div
@@ -530,18 +542,18 @@ export default function FabricaPainelTvModal({
                       </div>
 
                       <div>
-                        <div className="text-4xl font-black text-white">{dados.totalContas}</div>
+                        <div className="text-4xl font-black text-white">{dados?.totalContas ?? "Indisponível"}</div>
                         <div className="text-xs font-medium text-emerald-400 mt-0.5">
-                          {formatCurrency(dados.valorTotal)}
+                          {formatCurrency(dados?.valorTotal)}
                         </div>
                       </div>
 
                       <div className="pt-2 border-t border-slate-800 space-y-1 text-xs">
                         <div className="flex justify-between text-slate-300">
-                          <span>Na Fila: <strong>{dados.emFila}</strong></span>
-                          <span>Em Curso: <strong className="text-blue-400">{dados.emAndamento}</strong></span>
+                          <span>Na Fila: <strong>{dados?.emFila ?? "-"}</strong></span>
+                          <span>Em Curso: <strong className="text-blue-400">{dados?.emAndamento ?? "-"}</strong></span>
                         </div>
-                        {dados.devolvidasErro > 0 && (
+                        {dados?.devolvidasErro > 0 && (
                           <div className="rounded bg-red-950/80 border border-red-700/80 text-red-300 px-2 py-0.5 text-center font-semibold text-[11px]">
                             ⚠ {dados.devolvidasErro} devolvida(s) c/ erro
                           </div>
@@ -563,7 +575,7 @@ export default function FabricaPainelTvModal({
                     Metas de Faturamento ({competencia})
                   </h2>
                   <Badge variant="outline" className="border-slate-700 text-slate-300 text-xs">
-                    {(relatoriosData?.metas || []).length} meta(s) ativa(s)
+                    {relatoriosData ? `${(relatoriosData.metas ?? []).length} meta(s) ativa(s)` : "Metas indisponíveis"}
                   </Badge>
                 </div>
 
@@ -576,7 +588,7 @@ export default function FabricaPainelTvModal({
                       <div className="rounded-lg bg-slate-900 p-3 border border-slate-800">
                         <div className="text-xs text-slate-400">Contas Faturadas</div>
                         <div className="text-2xl font-bold text-blue-400">
-                          {dadosConsolidadosTv.realizadoContas}
+                          {dadosConsolidadosTv.realizadoContas ?? "Indisponível"}
                         </div>
                       </div>
                       <div className="rounded-lg bg-slate-900 p-3 border border-slate-800">
@@ -590,26 +602,18 @@ export default function FabricaPainelTvModal({
                 ) : (
                   <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
                     {relatoriosData.metas.map((m: any) => {
-                      const prodUser = m.usuarioId
-                        ? (relatoriosData.producaoPorFuncionario || []).find(
-                            (p: any) => p.usuarioId === m.usuarioId
-                          )
-                        : null;
-                      const qtdRealizada = prodUser
-                        ? prodUser.contasFaturadas || prodUser.totalContasMovimentadas
-                        : relatoriosData?.resumoPeriodo?.totalFaturadas || 0;
-                      const valorRealizado = prodUser
-                        ? prodUser.valorFaturado
-                        : relatoriosData?.resumoPeriodo?.valorTotalFaturado || 0;
+                      const realizado = realizadoMetaPainelTv(m, relatoriosData);
+                      const qtdRealizada = realizado.contas;
+                      const valorRealizado = realizado.valor;
 
                       const percQtd =
-                        m.metaQuantidadeContas > 0
+                        m.metaQuantidadeContas > 0 && qtdRealizada !== null
                           ? Math.min(100, Math.round((qtdRealizada / m.metaQuantidadeContas) * 100))
-                          : 0;
+                          : null;
                       const percValor =
-                        m.metaValorFaturado > 0
+                        m.metaValorFaturado > 0 && valorRealizado !== null
                           ? Math.min(100, Math.round((valorRealizado / m.metaValorFaturado) * 100))
-                          : 0;
+                          : null;
 
                       return (
                         <div
@@ -625,25 +629,25 @@ export default function FabricaPainelTvModal({
                             </div>
                             <Badge
                               className={
-                                percQtd >= 100
+                                percQtd !== null && percQtd >= 100
                                   ? "bg-emerald-600 text-white"
-                                  : percQtd >= 70
+                                  : percQtd !== null && percQtd >= 70
                                     ? "bg-blue-600 text-white"
                                     : "bg-amber-600 text-white"
                               }
                             >
-                              {percQtd}% da Meta
+                              {percQtd !== null ? `${percQtd}% da Meta` : "Produção indisponível"}
                             </Badge>
                           </div>
 
                           <div className="space-y-1">
                             <div className="flex justify-between text-xs text-slate-300">
                               <span>
-                                Quantidade: <strong>{qtdRealizada}</strong> / {m.metaQuantidadeContas} contas
+                                Quantidade: <strong>{qtdRealizada ?? "Indisponível"}</strong> / {m.metaQuantidadeContas} contas
                               </span>
-                              <span className="font-bold text-blue-400">{percQtd}%</span>
+                              <span className="font-bold text-blue-400">{percQtd !== null ? `${percQtd}%` : "-"}</span>
                             </div>
-                            <Progress value={percQtd} className="h-2.5 bg-slate-800" />
+                            {percQtd !== null && <Progress value={percQtd} className="h-2.5 bg-slate-800" />}
                           </div>
 
                           {m.metaValorFaturado > 0 && (
@@ -653,9 +657,9 @@ export default function FabricaPainelTvModal({
                                   Financeiro: <strong>{formatCurrency(valorRealizado)}</strong> /{" "}
                                   {formatCurrency(m.metaValorFaturado)}
                                 </span>
-                                <span className="font-bold text-emerald-400">{percValor}%</span>
+                                <span className="font-bold text-emerald-400">{percValor !== null ? `${percValor}%` : "-"}</span>
                               </div>
-                              <Progress value={percValor} className="h-2 bg-slate-800" />
+                              {percValor !== null && <Progress value={percValor} className="h-2 bg-slate-800" />}
                             </div>
                           )}
                         </div>
@@ -670,16 +674,16 @@ export default function FabricaPainelTvModal({
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-blue-400" />
-                    Convênios e suas Contas na Esteira ({dadosConsolidadosTv.rankingConvenios.length})
+                    Convênios e Contas • AMOSTRA ({dadosConsolidadosTv.rankingConvenios.length})
                   </h2>
                   <span className="text-xs text-slate-400">
-                    Distribuição por setor e alertas de prazo
+                    Distribuição e alertas somente da amostra
                   </span>
                 </div>
 
                 {dadosConsolidadosTv.rankingConvenios.length === 0 ? (
                   <div className="text-center py-12 text-slate-400 text-sm">
-                    Nenhuma conta ativa nos setores para exibir por convênio.
+                    {estadoContas === "pronto" ? "Nenhuma conta nesta amostra para exibir por convênio." : mensagemEstadoPainelTv(estadoContas)}
                   </div>
                 ) : (
                   <div className="overflow-x-auto max-h-[380px]">
@@ -752,7 +756,9 @@ export default function FabricaPainelTvModal({
                                     )}
                                   </div>
                                 ) : (
-                                  <span className="text-emerald-400 font-medium">No prazo</span>
+                                  <span className={conv.semDatasPrazo > 0 ? "text-amber-300 font-medium" : "text-emerald-400 font-medium"}>
+                                    {conv.semDatasPrazo > 0 ? `${conv.semDatasPrazo} sem datas válidas` : "Sem alerta crítico"}
+                                  </span>
                                 )}
                               </td>
                             </tr>
@@ -774,7 +780,7 @@ export default function FabricaPainelTvModal({
           <div className="space-y-4">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <Building2 className="h-4 w-4 text-blue-400" />
-              Visão Detalhada por Convênio e Contas na Esteira
+              Visão Detalhada por Convênio e Contas • AMOSTRA
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {dadosConsolidadosTv.rankingConvenios.map((conv) => (
@@ -816,6 +822,7 @@ export default function FabricaPainelTvModal({
                   </div>
 
                   <div className="space-y-1.5 pt-1">
+                    <p className="text-[10px] text-slate-400">Até 6 contas exibidas deste convênio na amostra.</p>
                     {conv.contasRecentes.map((c: any) => (
                       <div
                         key={c.id}
@@ -864,6 +871,7 @@ export default function FabricaPainelTvModal({
                 <Users className="h-4 w-4 text-blue-400" />
                 Ranking de Produção por Colaborador ({competencia})
               </h2>
+              {!relatoriosData && <p role="status" className="text-xs text-slate-400">{mensagemEstadoPainelTv(estadoRelatorios)}</p>}
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
@@ -903,6 +911,7 @@ export default function FabricaPainelTvModal({
                 <BarChart3 className="h-4 w-4 text-emerald-400" />
                 SLA e Entregas por Hospital ({competencia})
               </h2>
+              {!relatoriosData && <p role="status" className="text-xs text-slate-400">{mensagemEstadoPainelTv(estadoRelatorios)}</p>}
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">

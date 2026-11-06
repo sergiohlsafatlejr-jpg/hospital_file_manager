@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { describe, expect, it, vi } from "vitest";
+import { hashHonorarios, ordenarHonorarios, normalizarProcedimentosHonorarios, versaoComposicaoHonorarios } from "./contaHonorariosComposicao";
 import {
   criarContaContextoMedicoRepositorioDrizzle,
   lerXmlMedicoAutorizadoSeguro,
@@ -323,7 +324,7 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
     expect(snapshotBlock).not.toMatch(/\.insert\(faturamentoTiss\)|\.update\(faturamentoTiss\)|\.delete\(faturamentoTiss\)/);
   });
 
-  it("consolida múltiplas linhas gravadas do mesmo arquivo médico e guia (cirurgias + visita) ao listar fontes", async () => {
+  it("lê composição completa vigente de cirurgias + visita sem unir linhas históricas", async () => {
     const rowsDb = [
       {
         id: 102,
@@ -385,6 +386,40 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
         criadoEm: new Date("2026-10-30T12:00:00.000Z"),
       },
     ];
+    const procedimentos = normalizarProcedimentosHonorarios(
+      rowsDb.flatMap(r => r.procedimentosJson)
+    );
+    const identidadeHospitalar = hashHonorarios("identidade-sintetica");
+    const base = {
+      formato: "honorarios-v1" as const,
+      identidadeHospitalar,
+      identidadesRevisao: [identidadeHospitalar],
+      blocos: ordenarHonorarios(
+        rowsDb.map(r => ({
+          hash: hashHonorarios(r.procedimentosJson),
+          registros: r.registros,
+        }))
+      ),
+      hashProcedimentos: hashHonorarios(procedimentos),
+    };
+    const composicao = {
+      ...base,
+      revisaoArquivo: hashHonorarios({
+        scope,
+        arquivoMedicoId: 77,
+        loteImportacaoId: null,
+        snapshotHash: "snap-1",
+        grupos: [base],
+      }),
+    };
+    const vigente = {
+      ...rowsDb[0],
+      id: 103,
+      registros: 3,
+      codigosDistintos: 3,
+      versaoSemantica: versaoComposicaoHonorarios(composicao),
+      procedimentosJson: { procedimentos, composicao },
+    };
 
     const repositorio = criarContaContextoMedicoRepositorioDrizzle({
       getDb: async () =>
@@ -392,7 +427,7 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
           select: () => ({
             from: () => ({
               where: () => ({
-                orderBy: async () => rowsDb,
+                orderBy: async () => [vigente, ...rowsDb],
               }),
             }),
           }),
@@ -404,9 +439,9 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
     expect(fontes[0].registros).toBe(3);
     expect(fontes[0].codigosDistintos).toBe(3);
     expect(fontes[0].procedimentos.map(p => p.codigo)).toEqual([
+      "10102019",
       "31102050",
       "31102360",
-      "10102019",
     ]);
   });
 });

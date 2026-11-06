@@ -621,6 +621,9 @@ describe("contaContextoMedicoService — somente informação não financeira", 
     });
     await service.indexar({ scope, arquivoMedicoId: 6 });
     fake.hospital = { ...fake.hospital, itensHospitalares: [] };
+    // A publicação deve corresponder ao snapshot vigente, mesmo sem itens.
+    await service.indexar({ scope, arquivoMedicoId: 6 });
+    fake.fontes.splice(0, 1); // mock representa a leitura da revisão mais recente
 
     const antes = await service.consultar({ scope });
     expect(antes.candidatos[0]).toMatchObject({

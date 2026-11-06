@@ -1,4 +1,4 @@
-import { safeParseDate } from "./dateUtils";
+import { parseDataAltaPrazo, parseDataPrazoEstrita } from "./fabricaPrazoDatas";
 
 export const PRAZO_VENCIMENTO_GUIA_DIAS = 25;
 export const ALERTA_PREVENTIVO_GUIA_DIAS = 20;
@@ -76,55 +76,7 @@ function formatarDataHoraCurtaBR(d: Date | null): string {
 export function parseDataChegadaSafatle(
   raw: string | Date | null | undefined
 ): Date | null {
-  if (!raw) return null;
-  if (raw instanceof Date) {
-    if (isNaN(raw.getTime())) return null;
-    if (
-      raw.getUTCHours() === 0 &&
-      raw.getUTCMinutes() === 0 &&
-      raw.getUTCSeconds() === 0
-    ) {
-      return new Date(
-        raw.getUTCFullYear(),
-        raw.getUTCMonth(),
-        raw.getUTCDate(),
-        8,
-        0,
-        0
-      );
-    }
-    return raw;
-  }
-
-  const str = String(raw).trim();
-  if (!str) return null;
-
-  // Apenas YYYY-MM-DD ou meia-noite zerada -> 08:00:00 local (mesma regra do backend)
-  const matchDateOnlyOrMidnight = str.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?)?$/i
-  );
-  if (matchDateOnlyOrMidnight) {
-    const [, y, m, d] = matchDateOnlyOrMidnight;
-    return new Date(Number(y), Number(m) - 1, Number(d), 8, 0, 0);
-  }
-
-  // Formato YYYY-MM-DD HH:mm:ss ou YYYY-MM-DDTHH:mm:ss sem timezone
-  const matchLocalDateTime = str.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/
-  );
-  if (matchLocalDateTime) {
-    const [, y, m, d, hh, mm, ss] = matchLocalDateTime;
-    return new Date(
-      Number(y),
-      Number(m) - 1,
-      Number(d),
-      Number(hh),
-      Number(mm),
-      Number(ss || 0)
-    );
-  }
-
-  return safeParseDate(str);
+  return parseDataPrazoEstrita(raw, 8);
 }
 
 /**
@@ -153,9 +105,11 @@ export function calcularAlertasPrazoContaFabrica(
   // -------------------------------------------------------------------------
   // 1. Cálculo do Tempo Parado no Setor Atual
   // -------------------------------------------------------------------------
-  let horasNoSetor = Math.max(0, Number(conta.horasNoSetorAtual) || 0);
-  if (horasNoSetor === 0 && conta.entradaSetorAtualEm) {
-    const dEntradaSetor = safeParseDate(conta.entradaSetorAtualEm);
+  const horasInformadas = conta.horasNoSetorAtual;
+  let horasNoSetor = typeof horasInformadas === "number" && Number.isFinite(horasInformadas)
+    ? Math.max(0, horasInformadas) : 0;
+  if (horasInformadas == null && conta.entradaSetorAtualEm) {
+    const dEntradaSetor = parseDataPrazoEstrita(conta.entradaSetorAtualEm);
     if (dEntradaSetor) {
       horasNoSetor = Math.max(
         0,
@@ -173,7 +127,7 @@ export function calcularAlertasPrazoContaFabrica(
   // -------------------------------------------------------------------------
   // 2. Cálculo do Prazo de Vencimento da Guia (25 dias a partir da Data Alta)
   // -------------------------------------------------------------------------
-  const dataAltaDate = safeParseDate(conta.dataAlta);
+  const dataAltaDate = parseDataAltaPrazo(conta.dataAlta);
   const possuiDataAlta = Boolean(dataAltaDate);
 
   let dataVencimentoGuia: Date | null = null;
@@ -215,7 +169,7 @@ export function calcularAlertasPrazoContaFabrica(
   const guiaVencida25Dias =
     !guiaEntregueConvenio &&
     diasDesdeAlta !== null &&
-    diasDesdeAlta >= PRAZO_VENCIMENTO_GUIA_DIAS;
+    diasDesdeAlta > PRAZO_VENCIMENTO_GUIA_DIAS;
 
   const guiaEmAlertaPreventivo =
     !guiaEntregueConvenio &&
@@ -244,7 +198,7 @@ export function calcularAlertasPrazoContaFabrica(
       Math.floor((agora.getTime() - dataChegadaSafatle.getTime()) / 3600000)
     );
     horasDesdeChegadaSafatle =
-      typeof conta.horasNaSafatle === "number" && conta.horasNaSafatle > diffHoras
+      typeof conta.horasNaSafatle === "number" && Number.isFinite(conta.horasNaSafatle) && conta.horasNaSafatle > diffHoras
         ? conta.horasNaSafatle
         : diffHoras;
 

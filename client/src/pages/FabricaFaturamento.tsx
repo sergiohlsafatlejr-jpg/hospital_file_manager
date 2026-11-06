@@ -6,6 +6,14 @@ import { FabricaBuscaBancoState } from "@/lib/fabricaBuscaBancoState";
 
 import FabricaPainelTvModal from "@/components/faturamento/FabricaPainelTvModal";
 
+import {
+  criarEscopoPainelTv,
+  dadosConsultaPainelTv,
+  descreverAmostraPainelTv,
+  LIMITE_AMOSTRA_SETOR,
+  LIMITE_AMOSTRA_TV,
+  mensagemEstadoPainelTv,
+} from "@/lib/fabricaPainelTvDados";
 import { caminhoContaFabricaImportada, caminhoContaFabricaBancoCliente } from "@/lib/fabricaContaDestino";
 import {
   calcularAlertasPrazoContaFabrica,
@@ -372,11 +380,8 @@ export default function FabricaFaturamento() {
     convenioId: convenioFiltro !== "todos" ? Number(convenioFiltro) : undefined,
   }, { enabled: podeConsultarSetores });
 
-  const {
-    data: listagemData,
-    isLoading: loadingContas,
-    refetch: refetchContas,
-  } = trpc.fabricaFaturamento.listarContas.useQuery({
+  const permissaoConsultaContas = { enabled: podeListarContas };
+  const listagemConsulta = trpc.fabricaFaturamento.listarContas.useQuery({
     setorAtual: setorSelecionado && setorSelecionado !== "todos" ? setorSelecionado : undefined,
     statusSetor: statusFiltro !== "todos" ? (statusFiltro as any) : undefined,
     hospitalEstabelecimentoId:
@@ -385,33 +390,49 @@ export default function FabricaFaturamento() {
     faturistaId: faturistaFiltro !== "todos" ? Number(faturistaFiltro) : undefined,
     search: buscaTexto || undefined,
     page: 1,
-    pageSize: 100,
-  }, { enabled: podeListarContas });
+    pageSize: LIMITE_AMOSTRA_SETOR,
+  }, { ...permissaoConsultaContas, placeholderData: () => undefined });
+  const listagemAtual = dadosConsultaPainelTv(listagemConsulta, podeListarContas);
+  const listagemData = listagemAtual.data;
+  const loadingContas = listagemAtual.estado === "carregando";
+  const refetchContas = listagemConsulta.refetch;
 
-  const {
-    data: relatoriosData,
-    isLoading: loadingRelatorios,
-    refetch: refetchRelatorios,
-  } = trpc.fabricaFaturamento.relatoriosGerenciais.useQuery(
+  // TV e relatórios compartilham hospital/competência. A esteira operacional
+  // continua com filtros independentes; nenhum deles é um fallback para a TV.
+  const escopoTv = criarEscopoPainelTv(hospitalRelatorioFiltro, competenciaRelatorio);
+  const permissaoConsultaRelatorios = { enabled: podeVerRelatorios };
+  const relatoriosConsulta = trpc.fabricaFaturamento.relatoriosGerenciais.useQuery(
     {
       competencia: competenciaRelatorio,
       hospitalEstabelecimentoId:
         hospitalRelatorioFiltro !== "todos" ? Number(hospitalRelatorioFiltro) : undefined,
     },
-    { enabled: podeVerRelatorios }
+    { ...permissaoConsultaRelatorios, enabled: permissaoConsultaRelatorios.enabled && escopoTv !== null, placeholderData: () => undefined }
   );
+  const relatoriosAtuais = dadosConsultaPainelTv(relatoriosConsulta, podeVerRelatorios, escopoTv !== null);
+  const relatoriosData = relatoriosAtuais.data;
+  const refetchRelatorios = relatoriosConsulta.refetch;
 
-  const { data: listagemTvData, refetch: refetchContasTv } =
+  const resumoTvConsulta = trpc.fabricaFaturamento.resumoSetores.useQuery({
+    hospitalEstabelecimentoId: escopoTv?.hospitalEstabelecimentoId,
+    dataInicio: escopoTv?.dataInicio,
+    dataFim: escopoTv?.dataFim,
+  }, { enabled: painelTvOpen && podeConsultarSetores && escopoTv !== null, placeholderData: () => undefined });
+  const resumoTvAtual = dadosConsultaPainelTv(resumoTvConsulta, podeConsultarSetores, escopoTv !== null);
+
+  const listagemTvConsulta =
     trpc.fabricaFaturamento.listarContas.useQuery(
       {
-        hospitalEstabelecimentoId:
-          hospitalFiltro !== "todos" ? Number(hospitalFiltro) : undefined,
-        convenioId: convenioFiltro !== "todos" ? Number(convenioFiltro) : undefined,
+        hospitalEstabelecimentoId: escopoTv?.hospitalEstabelecimentoId,
+        dataInicio: escopoTv?.dataInicio,
+        dataFim: escopoTv?.dataFim,
         page: 1,
-        pageSize: 500,
+        pageSize: LIMITE_AMOSTRA_TV,
       },
-      { enabled: painelTvOpen && podeConsultarSetores }
+      { enabled: painelTvOpen && podeConsultarSetores && escopoTv !== null, placeholderData: () => undefined }
     );
+  const listagemTvAtual = dadosConsultaPainelTv(listagemTvConsulta, podeConsultarSetores, escopoTv !== null);
+  const refetchContasTv = listagemTvConsulta.refetch;
 
   const recarregarTudo = () => {
     refetchAuxData();
@@ -420,8 +441,11 @@ export default function FabricaFaturamento() {
       refetchMeuDesempenho();
     }
     if (podeListarContas) refetchContas();
-    if (podeVerRelatorios) refetchRelatorios();
-    if (painelTvOpen && podeConsultarSetores) refetchContasTv();
+    if (podeVerRelatorios && escopoTv) refetchRelatorios();
+    if (painelTvOpen && podeConsultarSetores && escopoTv) {
+      resumoTvConsulta.refetch();
+      refetchContasTv();
+    }
   };
 
   // Mutations
@@ -900,15 +924,19 @@ export default function FabricaFaturamento() {
           onClose={() => setPainelTvOpen(false)}
           competencia={competenciaRelatorio}
           hospitalNomeFiltro={
-            hospitalFiltro !== "todos"
-              ? hospitais.find((h: any) => String(h.id) === hospitalFiltro)?.nome ||
+            hospitalRelatorioFiltro !== "todos"
+              ? hospitais.find((h: any) => String(h.id) === hospitalRelatorioFiltro)?.nome ||
                 "Hospital Filtrado"
               : "Todos os Hospitais"
           }
           setoresVisiveis={setoresVisiveis}
-          resumoSetores={resumoSetores}
+          resumoSetores={resumoTvAtual.data}
           relatoriosData={relatoriosData}
-          contasEsteira={listagemTvData?.contas || contasListaBruta}
+          estadoResumo={resumoTvAtual.estado}
+          estadoRelatorios={relatoriosAtuais.estado}
+          estadoContas={listagemTvAtual.estado}
+          contasEsteira={listagemTvAtual.data?.contas ?? []}
+          totalContasAmostra={listagemTvAtual.data?.total}
           onRefresh={recarregarTudo}
         />
 
@@ -1768,6 +1796,11 @@ export default function FabricaFaturamento() {
                 </div>
               </div>
 
+              <p role="status" className="text-xs text-muted-foreground pt-2">
+                {listagemAtual.estado === "pronto"
+                  ? descreverAmostraPainelTv(contasListaBruta.length, listagemData?.total, LIMITE_AMOSTRA_SETOR)
+                  : `AMOSTRA da página (até ${LIMITE_AMOSTRA_SETOR} contas): ${mensagemEstadoPainelTv(listagemAtual.estado)}. Atalhos indisponíveis até atualizar.`}
+              </p>
               {/* Atalhos Rápidos de Fila (Minhas Contas / Fila Geral / Devolvidas) */}
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button
@@ -1777,7 +1810,7 @@ export default function FabricaFaturamento() {
                   className="h-7 text-xs"
                   onClick={() => setFiltroFilaRapida("todas")}
                 >
-                  Todas do Setor ({contasListaBruta.length})
+                  Todas da Amostra ({contasListaBruta.length})
                 </Button>
                 <Button
                   type="button"
@@ -2991,7 +3024,7 @@ export default function FabricaFaturamento() {
                         Modo Painel TV — Gestão à Vista para o Setor:
                       </span>{" "}
                       <span className="text-muted-foreground">
-                        Exibe em tela cheia de alto contraste as Metas, Quantidade de Contas por Setor e Distribuição por Convênio com atualização e rotação automáticas.
+                        Usa o hospital e a competência dos relatórios acima, sem filtro de convênio. Resumo total separado da amostra de até 500 contas e seus alertas, com atualização e rotação automáticas.
                       </span>
                     </div>
                   </div>
