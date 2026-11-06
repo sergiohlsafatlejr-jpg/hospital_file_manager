@@ -780,35 +780,76 @@ export function criarContaContextoMedicoService(
     let correlacionadas = 0;
     let criadas = 0;
     const vistos = new Set<string>();
+    type CorrelacaoSemantica = {
+      guiaPrestador: string;
+      guiaOperadora: string;
+      guiaPrincipal: string;
+      dataAtendimento: string | null;
+    };
+    const gruposPorGuiaReferencia = new Map<
+      string,
+      {
+        procedimentos: ProcedimentoMedicoInfo[];
+        correlacoes: CorrelacaoSemantica[];
+      }
+    >();
     for (const guia of guias) {
       const match = correlacionarGuia(guia, hospital.referenciasGuias);
       if (!match) continue;
       const procedimentos = fontesProcedimentosSemanticos(guia);
       if (!procedimentos.length) continue;
-      const semantic = {
+      const correlacao: CorrelacaoSemantica = {
+        guiaPrestador: codigoNormalizado(guia.correlacao.numeroGuiaPrestador),
+        guiaOperadora: codigoNormalizado(guia.correlacao.numeroGuiaOperadora),
+        guiaPrincipal: codigoNormalizado(
+          guia.correlacao.guiaSolicitacaoInternacao
+        ),
+        dataAtendimento: diaCivil(guia.correlacao.dataAtendimento),
+      };
+      const versaoBloco = hashSemantico({
         guiaReferencia: match.guiaReferencia,
         procedimentos,
-        // Não persiste a correlação privada; só estabiliza mudança semântica relevante.
-        correlacao: {
-          guiaPrestador: codigoNormalizado(guia.correlacao.numeroGuiaPrestador),
-          guiaOperadora: codigoNormalizado(guia.correlacao.numeroGuiaOperadora),
-          guiaPrincipal: codigoNormalizado(
-            guia.correlacao.guiaSolicitacaoInternacao
-          ),
-          dataAtendimento: diaCivil(guia.correlacao.dataAtendimento),
-        },
-      };
-      const versaoSemantica = hashSemantico(semantic);
-      const dedupe = `${match.guiaReferencia}\u0000${versaoSemantica}`;
+        correlacao,
+      });
+      const dedupe = `${match.guiaReferencia}\u0000${versaoBloco}`;
       if (vistos.has(dedupe)) continue;
       vistos.add(dedupe);
+      if (match.avisoData) avisos.add(match.avisoData);
+      const grupo = gruposPorGuiaReferencia.get(match.guiaReferencia) ?? {
+        procedimentos: [],
+        correlacoes: [],
+      };
+      grupo.procedimentos.push(...procedimentos);
+      grupo.correlacoes.push(correlacao);
+      gruposPorGuiaReferencia.set(match.guiaReferencia, grupo);
+    }
+
+    for (const [guiaReferencia, grupo] of gruposPorGuiaReferencia.entries()) {
+      const procedimentos = [...grupo.procedimentos].sort((a, b) =>
+        stable(a).localeCompare(stable(b))
+      );
+      const semantic =
+        grupo.correlacoes.length === 1
+          ? {
+              guiaReferencia,
+              procedimentos,
+              // Não persiste a correlação privada; só estabiliza mudança semântica relevante.
+              correlacao: grupo.correlacoes[0],
+            }
+          : {
+              guiaReferencia,
+              procedimentos,
+              correlacao: grupo.correlacoes[0],
+              correlacoes: grupo.correlacoes,
+            };
+      const versaoSemantica = hashSemantico(semantic);
       correlacionadas += 1;
       const insertion = await deps.repositorio.inserirFonteSeAusente({
         scope,
         arquivoMedicoId,
         loteImportacaoId: proveniencia?.loteImportacaoId ?? null,
         loteClaim: proveniencia?.loteClaim,
-        guiaReferencia: match.guiaReferencia,
+        guiaReferencia,
         versaoSemantica,
         versaoSnapshotHospitalar: versaoItensHospitalares(
           hospital.itensHospitalares
@@ -820,7 +861,6 @@ export function criarContaContextoMedicoService(
         procedimentos,
       });
       if (insertion.criada) criadas += 1;
-      if (match.avisoData) avisos.add(match.avisoData);
     }
     return { correlacionadas, criadas, avisos: [...avisos] };
   }

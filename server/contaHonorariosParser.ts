@@ -58,6 +58,7 @@ const CAMPOS_CORRELACAO: Record<string, keyof CorrelacaoGuiaHonorarios> = {
   numeroGuiaSolicitacaoInternacao: "guiaSolicitacaoInternacao",
   numeroCarteira: "numeroCarteira",
   dataAtendimento: "dataAtendimento",
+  dataInicioFaturamento: "dataAtendimento",
   dataEmissaoGuia: "dataEmissaoGuia",
 };
 
@@ -88,6 +89,7 @@ const CAMPOS_SEQUENCIAL_PROCEDIMENTO = new Set([
 const CAMPOS_NOME_PROFISSIONAL = new Set([
   "nomeProfissional",
   "nomeProfissionalExecutante",
+  "nomeProf",
   "nomeContratado",
   "nome",
 ]);
@@ -100,6 +102,13 @@ const CAMPOS_NUMERO_CONSELHO_PROFISSIONAL = new Set([
   "numeroConselhoProfissional",
   "numeroConselho",
   "numeroRegistro",
+]);
+const TAGS_PROFISSIONAL = new Set([
+  "profissionalExecutante",
+  "dadosProfissional",
+  "profissionais",
+  "identificacaoEquipe",
+  "equipeSadt",
 ]);
 
 function textoSeguro(valor: string): string | null {
@@ -235,7 +244,7 @@ export function parseContaHonorarios(xml: string | Buffer): ParseContaHonorarios
         profissionais: [],
       };
     }
-    if (procedimentoAtual && (local === "profissionalExecutante" || local === "dadosProfissional")) {
+    if (procedimentoAtual && TAGS_PROFISSIONAL.has(local)) {
       profissionalAtual = { nome: null, conselho: null, numeroConselho: null };
     }
   };
@@ -286,8 +295,15 @@ export function parseContaHonorarios(xml: string | Buffer): ParseContaHonorarios
       }
     }
 
-    if (local === "profissionalExecutante" || local === "dadosProfissional") {
-      adicionarProfissional(procedimentoAtual, profissionalAtual);
+    if (TAGS_PROFISSIONAL.has(local) && profissionalAtual) {
+      if (
+        local !== "profissionais" ||
+        profissionalAtual.nome ||
+        profissionalAtual.conselho ||
+        profissionalAtual.numeroConselho
+      ) {
+        adicionarProfissional(procedimentoAtual, profissionalAtual);
+      }
       profissionalAtual = null;
     }
     if (local === "procedimentoRealizado") {

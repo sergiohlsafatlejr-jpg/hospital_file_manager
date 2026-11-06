@@ -108,4 +108,65 @@ describe("parseContaHonorarios", () => {
     expect(() => parseContaHonorarios(`<mensagemTISS>${guias}</mensagemTISS>`))
       .toThrow(/limite de guias/i);
   });
+
+  it("extrai profissionais na tag TISS <ans:profissionais> e dataInicioFaturamento de <ans:dadosInternacao>", () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <ans:mensagemTISS xmlns:ans="http://www.ans.gov.br/padroes/tiss/schemas">
+        <ans:prestadorParaOperadora>
+          <ans:loteGuias>
+            <ans:guiasTISS>
+              <ans:guiaHonorarios>
+                <ans:cabecalhoGuia>
+                  <ans:registroANS>382876</ans:registroANS>
+                  <ans:numeroGuiaPrestador>76831688</ans:numeroGuiaPrestador>
+                </ans:cabecalhoGuia>
+                <ans:guiaSolicInternacao>76831688</ans:guiaSolicInternacao>
+                <ans:numeroGuiaOperadora>76831688</ans:numeroGuiaOperadora>
+                <ans:dadosInternacao>
+                  <ans:dataInicioFaturamento>2026-10-27</ans:dataInicioFaturamento>
+                  <ans:dataFimFaturamento>2026-10-28</ans:dataFimFaturamento>
+                </ans:dadosInternacao>
+                <ans:procedimentosRealizados>
+                  <ans:procedimentoRealizado>
+                    <ans:sequencialItem>1</ans:sequencialItem>
+                    <ans:dataExecucao>2026-10-28</ans:dataExecucao>
+                    <ans:procedimento>
+                      <ans:codigoTabela>22</ans:codigoTabela>
+                      <ans:codigoProcedimento>31102360</ans:codigoProcedimento>
+                      <ans:descricaoProcedimento>URETERORRENOLITOTRIPSIA FLEXIVEL A LASER UNILATERAL</ans:descricaoProcedimento>
+                    </ans:procedimento>
+                    <ans:profissionais>
+                      <ans:grauParticipacao>00</ans:grauParticipacao>
+                      <ans:nomeProfissional>CIRURGIAO EXEMPLO</ans:nomeProfissional>
+                      <ans:conselhoProfissional>06</ans:conselhoProfissional>
+                      <ans:numeroConselhoProfissional>12345</ans:numeroConselhoProfissional>
+                    </ans:profissionais>
+                  </ans:procedimentoRealizado>
+                </ans:procedimentosRealizados>
+              </ans:guiaHonorarios>
+            </ans:guiasTISS>
+          </ans:loteGuias>
+        </ans:prestadorParaOperadora>
+      </ans:mensagemTISS>`;
+
+    const resultado = parseContaHonorarios(xml);
+    expect(resultado.recognized).toBe(true);
+    expect(resultado.guias).toHaveLength(1);
+    expect(resultado.guias[0].correlacao.dataAtendimento).toBe("2026-10-27");
+    expect(resultado.guias[0].procedimentos).toEqual([
+      {
+        codigo: "31102360",
+        descricao: "URETERORRENOLITOTRIPSIA FLEXIVEL A LASER UNILATERAL",
+        dataExecucao: "2026-10-28",
+        sequencial: "1",
+        profissionais: [
+          {
+            nome: "CIRURGIAO EXEMPLO",
+            conselho: "06",
+            numeroConselho: "12345",
+          },
+        ],
+      },
+    ]);
+  });
 });

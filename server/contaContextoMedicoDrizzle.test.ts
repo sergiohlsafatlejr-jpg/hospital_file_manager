@@ -322,4 +322,91 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
     expect(snapshotBlock).not.toMatch(/valorUnitario|valorFaturado|valorTotal|recebimento/i);
     expect(snapshotBlock).not.toMatch(/\.insert\(faturamentoTiss\)|\.update\(faturamentoTiss\)|\.delete\(faturamentoTiss\)/);
   });
+
+  it("consolida múltiplas linhas gravadas do mesmo arquivo médico e guia (cirurgias + visita) ao listar fontes", async () => {
+    const rowsDb = [
+      {
+        id: 102,
+        estabelecimentoId: scope.estabelecimentoId,
+        convenioId: scope.convenioId,
+        arquivoHospitalId: scope.arquivoHospitalId,
+        arquivoMedicoId: 77,
+        loteImportacaoId: null,
+        numeroConta: scope.numeroConta,
+        numeroLote: scope.numeroLote,
+        competencia: scope.competencia,
+        guiaReferencia: "76831688",
+        versaoSemantica: "hash-visita",
+        versaoSnapshotHospitalar: "snap-1",
+        registros: 1,
+        codigosDistintos: 1,
+        procedimentosJson: [
+          {
+            codigo: "10102019",
+            descricao: "VISITA HOSPITALAR PACIENTE INTERNADO",
+            dataExecucao: "2026-10-27",
+            sequencial: "1",
+            profissionais: [],
+          },
+        ],
+        criadoEm: new Date("2026-10-30T12:00:01.000Z"),
+      },
+      {
+        id: 101,
+        estabelecimentoId: scope.estabelecimentoId,
+        convenioId: scope.convenioId,
+        arquivoHospitalId: scope.arquivoHospitalId,
+        arquivoMedicoId: 77,
+        loteImportacaoId: null,
+        numeroConta: scope.numeroConta,
+        numeroLote: scope.numeroLote,
+        competencia: scope.competencia,
+        guiaReferencia: "76831688",
+        versaoSemantica: "hash-cirurgias",
+        versaoSnapshotHospitalar: "snap-1",
+        registros: 2,
+        codigosDistintos: 2,
+        procedimentosJson: [
+          {
+            codigo: "31102050",
+            descricao: "COLOCACAO CISTOSCOPICA DE DUPLO J UNILATERAL",
+            dataExecucao: "2026-10-28",
+            sequencial: "1",
+            profissionais: [],
+          },
+          {
+            codigo: "31102360",
+            descricao: "URETERORRENOLITOTRIPSIA FLEXIVEL A LASER UNILATERAL",
+            dataExecucao: "2026-10-28",
+            sequencial: "2",
+            profissionais: [],
+          },
+        ],
+        criadoEm: new Date("2026-10-30T12:00:00.000Z"),
+      },
+    ];
+
+    const repositorio = criarContaContextoMedicoRepositorioDrizzle({
+      getDb: async () =>
+        ({
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                orderBy: async () => rowsDb,
+              }),
+            }),
+          }),
+        }) as never,
+    });
+
+    const fontes = await repositorio.listarFontes(scope);
+    expect(fontes).toHaveLength(1);
+    expect(fontes[0].registros).toBe(3);
+    expect(fontes[0].codigosDistintos).toBe(3);
+    expect(fontes[0].procedimentos.map(p => p.codigo)).toEqual([
+      "31102050",
+      "31102360",
+      "10102019",
+    ]);
+  });
 });

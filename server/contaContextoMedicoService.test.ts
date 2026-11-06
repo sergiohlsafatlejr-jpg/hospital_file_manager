@@ -703,4 +703,90 @@ describe("contaContextoMedicoService — somente informação não financeira", 
       financeiro: 0,
     });
   });
+
+  it("consolida múltiplas guiaHonorarios da mesma internação (cirurgias + visita) em uma única fonte sem perder cirurgias", async () => {
+    const fake = makeRepository();
+    fake.hospital = {
+      ...fake.hospital,
+      referenciasGuias: [
+        {
+          numeroGuiaPrestador: "76831688",
+          numeroGuiaOperadora: "76831688",
+          beneficiario: "BENEF-SINTETICO",
+          datasExecucao: ["2026-10-27", "2026-10-28"],
+        },
+      ],
+    };
+    fake.parsed = {
+      recognized: true,
+      guias: [
+        {
+          correlacao: {
+            numeroGuiaPrestador: "76831688",
+            numeroGuiaOperadora: "76831688",
+            guiaSolicitacaoInternacao: "76831688",
+            numeroCarteira: "BENEF-SINTETICO",
+            dataAtendimento: "2026-10-27",
+            dataEmissaoGuia: "2026-10-28",
+            codigoPrestador: null,
+          },
+          procedimentos: [
+            {
+              codigo: "31102050",
+              descricao: "COLOCACAO CISTOSCOPICA DE DUPLO J UNILATERAL",
+              dataExecucao: "2026-10-28",
+              sequencial: "1",
+              profissionais: [{ nome: "Cirurgião 1", conselho: "06", numeroConselho: "1111" }],
+            },
+            {
+              codigo: "31102360",
+              descricao: "URETERORRENOLITOTRIPSIA FLEXIVEL A LASER UNILATERAL",
+              dataExecucao: "2026-10-28",
+              sequencial: "2",
+              profissionais: [{ nome: "Cirurgião 1", conselho: "06", numeroConselho: "1111" }],
+            },
+          ],
+        },
+        {
+          correlacao: {
+            numeroGuiaPrestador: "76831688",
+            numeroGuiaOperadora: "76831688",
+            guiaSolicitacaoInternacao: "76831688",
+            numeroCarteira: "BENEF-SINTETICO",
+            dataAtendimento: "2026-10-27",
+            dataEmissaoGuia: "2026-10-27",
+            codigoPrestador: null,
+          },
+          procedimentos: [
+            {
+              codigo: "10102019",
+              descricao: "VISITA HOSPITALAR PACIENTE INTERNADO",
+              dataExecucao: "2026-10-27",
+              sequencial: "1",
+              profissionais: [{ nome: "Clínico Visitante", conselho: "06", numeroConselho: "2222" }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const service = criarContaContextoMedicoService({
+      repositorio: fake.repository,
+      parse: () => fake.parsed,
+    });
+
+    await expect(
+      service.indexar({ scope, arquivoMedicoId: 6 })
+    ).resolves.toMatchObject({ indexadas: 1, jaIndexadas: 0 });
+
+    const consulta = await service.consultar({ scope });
+    expect(consulta.fontes).toHaveLength(1);
+    expect(consulta.fontes[0].registros).toBe(3);
+    expect(consulta.fontes[0].codigosDistintos).toBe(3);
+    expect(consulta.fontes[0].procedimentos.map(p => p.codigo)).toEqual([
+      "10102019",
+      "31102050",
+      "31102360",
+    ]);
+  });
 });

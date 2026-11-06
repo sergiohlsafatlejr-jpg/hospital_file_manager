@@ -1057,15 +1057,89 @@ export function criarContaContextoMedicoRepositorioDrizzle(
           desc(contaContextoMedicoFontes.id)
         );
       // Reimportações são append-only; somente a versão mais recente por arquivo
-      // médico + guia participa da composição atual. As anteriores permanecem na
-      // tabela e nas evidências dos eventos já gravados.
-      const atuais = new Map<string, FonteMedicaPersistida>();
+      // médico + guia participa da composição atual. Quando o mesmo arquivo médico
+      // possui múltiplas linhas de `guiaHonorarios` gravadas para a mesma guia de
+      // referência, consolidamos os procedimentos em ordem cronológica de gravação.
+      const grupos = new Map<string, FonteMedicaPersistida[]>();
       for (const row of rows) {
         const fonte = fonteDbParaDominio(row);
         const chave = `${fonte.arquivoMedicoId}\u0000${fonte.guiaReferencia}`;
-        if (!atuais.has(chave)) atuais.set(chave, fonte);
+        const lista = grupos.get(chave);
+        if (!lista) {
+          grupos.set(chave, [fonte]);
+          continue;
+        }
+        const maisRecente = lista[0];
+        if (
+          (fonte.loteImportacaoId ?? null) ===
+            (maisRecente.loteImportacaoId ?? null) &&
+          (fonte.versaoSnapshotHospitalar ?? "") ===
+            (maisRecente.versaoSnapshotHospitalar ?? "")
+        ) {
+          lista.push(fonte);
+        }
       }
-      return [...atuais.values()];
+
+      const atuais: FonteMedicaPersistida[] = [];
+      for (const lista of grupos.values()) {
+        if (lista.length === 1) {
+          atuais.push(lista[0]);
+          continue;
+        }
+        const maisRecente = lista[0];
+        const emOrdemDeGravacao = [...lista].reverse();
+        const procedimentosConsolidados: ProcedimentoMedicoInfo[] = [];
+        for (const fonte of emOrdemDeGravacao) {
+          for (const proc of fonte.procedimentos) {
+            const idxMesmaPosicao = procedimentosConsolidados.findIndex(
+              existente =>
+                existente.codigo === proc.codigo &&
+                existente.descricao === proc.descricao &&
+                existente.dataExecucao === proc.dataExecucao &&
+                existente.sequencial !== null &&
+                existente.sequencial === proc.sequencial
+            );
+            if (idxMesmaPosicao >= 0) {
+              const existente = procedimentosConsolidados[idxMesmaPosicao];
+              if (
+                existente.profissionais.length === 0 &&
+                proc.profissionais.length > 0
+              ) {
+                procedimentosConsolidados[idxMesmaPosicao] = proc;
+              } else if (
+                JSON.stringify(existente.profissionais) !==
+                  JSON.stringify(proc.profissionais) &&
+                existente.profissionais.length > 0 &&
+                proc.profissionais.length > 0
+              ) {
+                procedimentosConsolidados.push(proc);
+              }
+              continue;
+            }
+            const duplicadoExato = procedimentosConsolidados.some(
+              existente =>
+                existente.codigo === proc.codigo &&
+                existente.descricao === proc.descricao &&
+                existente.dataExecucao === proc.dataExecucao &&
+                existente.sequencial === proc.sequencial &&
+                JSON.stringify(existente.profissionais) ===
+                  JSON.stringify(proc.profissionais)
+            );
+            if (!duplicadoExato) {
+              procedimentosConsolidados.push(proc);
+            }
+          }
+        }
+        atuais.push({
+          ...maisRecente,
+          procedimentos: procedimentosConsolidados,
+          registros: procedimentosConsolidados.length,
+          codigosDistintos: new Set(
+            procedimentosConsolidados.map(proc => proc.codigo)
+          ).size,
+        });
+      }
+      return atuais;
     },
 
     async inserirFonteSeAusente(fonte) {
