@@ -1,6 +1,7 @@
 import oracledb from "oracledb";
 import * as fs from "fs";
 import { logger } from "../_core/logger";
+import { compileReadOnlyAccountQuery } from "./sqlQuerySafety";
 
 export interface OracleConnectorConfig {
   host: string;
@@ -76,6 +77,35 @@ export class OracleConnector {
         logger.warn("Erro ao fechar conexão Oracle: " + String(e));
       }
       this.connection = null;
+    }
+  }
+
+  /** Account-only path. Use a dedicated connector/connection, never a legacy transaction. */
+  async executarQuerySomenteLeitura(query: string, params: unknown[]): Promise<any[]> {
+    const compiled = compileReadOnlyAccountQuery(query, params, "oracle");
+    if (!this.connection) throw new Error("Conexão não estabelecida");
+    const connection = this.connection;
+    const binds = Object.fromEntries(compiled.names.map((name, index) => [name, compiled.values[index]]));
+    try {
+      await connection.execute("SET TRANSACTION READ ONLY");
+      const result = await connection.execute(compiled.sql, binds as oracledb.BindParameters, {
+        autoCommit: false,
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      });
+      return (result.rows as any[]) || [];
+    } catch {
+      logger.error({ message: "Falha na consulta Oracle somente leitura" });
+      throw new Error("Falha ao executar consulta Oracle somente leitura.");
+    } finally {
+      try {
+        await connection.rollback();
+      } catch {
+        // A connection with uncertain transaction state cannot remain reusable.
+        this.connection = null;
+        try { await connection.close(); } catch { /* no raw driver error */ }
+        logger.error({ message: "Falha ao encerrar transação Oracle somente leitura" });
+        throw new Error("Falha ao encerrar consulta Oracle somente leitura.");
+      }
     }
   }
 

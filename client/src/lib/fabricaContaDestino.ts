@@ -25,6 +25,7 @@ export function caminhoContaFabricaBancoCliente(destino: {
   estabelecimentoId: number;
   numeroConta: string;
   fabricaContaId: number;
+  resumoId?: number | null;
 }): string {
   const params = new URLSearchParams({
     numeroConta: destino.numeroConta,
@@ -33,5 +34,8 @@ export function caminhoContaFabricaBancoCliente(destino: {
     estabelecimentoId: String(destino.estabelecimentoId),
     fabricaContaId: String(destino.fabricaContaId),
   });
+  if (destino.resumoId && Number.isSafeInteger(destino.resumoId) && destino.resumoId > 0) {
+    params.set("resumoId", String(destino.resumoId));
+  }
   return `/conta-convenio-detalhes?${params.toString()}`;
 }

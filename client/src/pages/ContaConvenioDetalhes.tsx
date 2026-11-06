@@ -295,6 +295,10 @@ function ContaConvenioDetalhesPadrao() {
   const arquivoIdUrl = parseInt(params.get("arquivoId") || "0") || undefined;
   const fabricaContaIdUrl = parseInt(params.get("fabricaContaId") || "0") || undefined;
   const competencia = params.get("competencia") || undefined;
+  const resumoIdUrl = parseInt(params.get("resumoId") || "0") || undefined;
+  const escopoBanco = params.get("origem") === "BANCO_CLIENTE"
+    ? { origem: "BANCO_CLIENTE" as const, fabricaContaId: fabricaContaIdUrl, resumoId: resumoIdUrl }
+    : params.get("origem") === "XML" ? { origem: "XML" as const } : {};
 
   const [loteFiltroAtivo, setLoteFiltroAtivo] = useState<string | undefined>(numeroLoteUrl);
   const [arquivoFiltroAtivo, setArquivoFiltroAtivo] = useState<number | undefined>(arquivoIdUrl);
@@ -428,6 +432,7 @@ function ContaConvenioDetalhesPadrao() {
     {
       numeroConta,
       estabelecimentoId,
+      ...escopoBanco,
       tipoItem: tipoFiltro || undefined,
       numeroLote: loteFiltroAtivo,
       arquivoId: arquivoFiltroAtivo,
@@ -441,6 +446,7 @@ function ContaConvenioDetalhesPadrao() {
     {
       numeroConta,
       estabelecimentoId,
+      ...escopoBanco,
       numeroLote: loteExibicao,
       arquivoId: arquivoExibicao,
       competencia,
@@ -486,6 +492,7 @@ function ContaConvenioDetalhesPadrao() {
     {
       numeroConta,
       estabelecimentoId,
+      ...escopoBanco,
       numeroLote: loteExibicao,
       arquivoId: arquivoExibicao,
     },
@@ -853,25 +860,12 @@ function ContaConvenioDetalhesPadrao() {
     onError: err => toast.error(err.message),
   });
 
-  // Mutation para reimportar conta diretamente do banco do hospital
+  // Prévia remota somente leitura: a escrita versionada ocorre na Esteira.
   const reimportarMutation = trpc.contasConvenio.buscarConta.useMutation({
     onSuccess: (result: any) => {
-      if (result.fonteDados === "CACHE_LOCAL") {
-        toast.warning(
-          `Conta reimportada com ${result.totalItens} itens, mas os dados vieram do CACHE LOCAL (podem estar desatualizados). Verifique a conexão com o banco do hospital.`
-        );
-      } else {
-        toast.success(
-          `Conta reimportada com sucesso! ${result.totalItens} itens atualizados diretamente do banco do hospital. Valor total: R$ ${result.valorTotal?.toFixed(2)}`
-        );
-      }
-      // Salvar comparativo para exibição
-      if (result.comparativo && result.comparativo.hadPreviousData) {
-        setComparativoReimport(result.comparativo);
-      }
-      refetch();
+      toast.info(`Prévia consultada: ${result.totalItens} itens na origem. Nenhum item, valor ou histórico foi alterado. Use a Esteira para sincronizar.`);
     },
-    onError: err => toast.error(`Erro ao reimportar: ${err.message}`),
+    onError: err => toast.error(`Erro ao consultar prévia: ${err.message}`),
   });
 
   const compararMutation = trpc.contasConvenio.compararComPadroes.useMutation({
@@ -927,16 +921,16 @@ function ContaConvenioDetalhesPadrao() {
     });
   }, [estabelecimentoId, itensContaInteira.data?.items, numeroConta]);
   const executarComparacaoComContextoMedico = () => {
+    if (params.get("origem") === "BANCO_CLIENTE" || primeiroItem?.origem === "BANCO_CLIENTE") {
+      toast.info("A revisão bancária usa a coleção exata da sincronização. Abra a Esteira para atualizar o snapshot e sua auditoria, sem substituir o histórico.");
+      return;
+    }
     if (contextoMedicoScopeState.ready) {
       compararMutation.mutate({
         numeroConta,
         estabelecimentoId,
         contextoMedicoScope: contextoMedicoScopeState.scope,
       });
-      return;
-    }
-    if (primeiroItem?.origem === "BANCO_CLIENTE") {
-      compararMutation.mutate({ numeroConta, estabelecimentoId });
       return;
     }
     toast.warning("Comparação bloqueada: abra uma versão hospitalar com escopo médico único antes de validar itens faltantes.");
@@ -1320,9 +1314,13 @@ function ContaConvenioDetalhesPadrao() {
               variant="outline"
               className="border-blue-200 text-blue-700 hover:bg-blue-50"
               onClick={() => {
+                if (params.get("origem") === "BANCO_CLIENTE" || primeiroItem?.origem === "BANCO_CLIENTE") {
+                  setLocation("/fabrica-faturamento?aba=esteira&setor=faturamento");
+                  return;
+                }
                 if (
                   confirm(
-                    "Reimportar conta do banco do hospital?\n\nIsso irá buscar os dados mais recentes diretamente do sistema do hospital, substituindo os dados atuais."
+                    "Consultar uma prévia no banco do hospital?\n\nEsta consulta é somente leitura e não substitui itens ou histórico. A sincronização é feita pela Esteira."
                   )
                 ) {
                   reimportarMutation.mutate({
@@ -1339,10 +1337,10 @@ function ContaConvenioDetalhesPadrao() {
               ) : (
                 <Database className="mr-2 h-4 w-4" />
               )}
-              Reimportar do Banco
+              {params.get("origem") === "BANCO_CLIENTE" ? "Sincronizar pela Esteira" : "Prévia no Banco"}
             </Button>
             <Button 
-              size="sm" 
+              size="sm"
               onClick={handleExportExcel}
               disabled={!itensData?.items?.length}
             >
