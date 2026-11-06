@@ -44,8 +44,8 @@ function headerRow(row: any) {
   const get = (...keys: string[]) => text(campoBanco(row, ...keys));
   return {
     numeroContaHospital: get("numconta", "numero_conta", "conta", "nr_interno_conta", "cd_reg_fat"),
-    numeroAtendimento: get("numatend", "numero_atendimento", "atendimento", "nr_atendimento", "cd_atendimento"),
-    numeroGuia: get("guiacobra", "guia_cobra", "guia", "nr_guia", "aihguia", "aih_guia"),
+    numeroAtendimento: get("numatend", "numero_atendimento", "atendimento", "atend", "nr_atendimento", "cd_atendimento"),
+    numeroGuia: get("guiacobra", "guia_cobra", "guia", "nr_guia", "aihguia", "aih_guia", "autorizacao", "doc_convenio", "senha"),
     nomePaciente: get("pacientenome", "nomepaciente", "nomepac", "nome_paciente", "paciente", "nm_pessoa_fisica", "nm_paciente"),
     carteiraBeneficiario: get("matricula", "carteirinha", "carteira", "numero_carteirinha"),
     convenioNome: get("nomeconv", "nome_conv", "convenio", "nomeconvenio", "ds_convenio", "nm_convenio"),
@@ -53,25 +53,27 @@ function headerRow(row: any) {
     competencia: get("competencia", "mesprod", "mes_prod", "comp", "encerramento")?.replace("-", "/") ?? null,
     dataEntrada: normalizarDataExecucao(campoBanco(row, "datainternacao", "dataint", "data_internacao", "dt_inicio", "data_entrada", "dt_entrada", "dt_atendimento")) || null,
     dataAlta: normalizarDataExecucao(campoBanco(row, "dataalta", "datasai", "data_alta", "data_saida", "dt_fim", "dt_alta")) || null,
-    tipoAtendimento: get("tipoatend", "tipo_atend", "tipo_atendimento"),
+    tipoAtendimento: get("tipoatend", "tipo_atend", "tipo_atendimento", "tipo"),
   };
 }
 export type ColecaoBanco = Awaited<ReturnType<typeof prepararColecaoBanco>>;
 export async function prepararColecaoBanco(db: any, hospitalId: number, numeroConta: string, rows: any[]) {
   if (!rows.length) return { encontrada: false as const, hospitalId, numeroConta, hash: hashBanco([hospitalId, numeroConta, "AUSENTE"]), cabecalho: null, itens: [], valorTotal: "0.00" };
-  const header = headerRow(rows[0]);
+  const headers = rows.map(headerRow);
+  const pick = <K extends keyof ReturnType<typeof headerRow>>(k: K) => headers.map(h => h[k]).find(v => v != null) ?? null;
+  const header = { ...headers[0], numeroAtendimento: pick("numeroAtendimento"), numeroGuia: pick("numeroGuia"), carteiraBeneficiario: pick("carteiraBeneficiario"), competencia: pick("competencia"), dataEntrada: pick("dataEntrada"), dataAlta: pick("dataAlta"), tipoAtendimento: pick("tipoAtendimento") };
   if (!header.numeroContaHospital || header.numeroContaHospital !== numeroConta.trim()
     || (!header.numeroAtendimento && !header.numeroGuia) || !header.nomePaciente || (!header.convenioNome && !header.convenioCodigo)) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O hospital não retornou uma identidade completa da conta (conta, atendimento/guia, paciente e convênio)." });
   }
   const identity = (h: ReturnType<typeof headerRow>) => [h.numeroContaHospital, h.numeroAtendimento, h.numeroGuia, norm(h.nomePaciente), h.carteiraBeneficiario, norm(h.convenioNome), h.convenioCodigo, h.competencia, h.dataEntrada, h.dataAlta];
-  if (rows.some(row => JSON.stringify(identity(headerRow(row))) !== JSON.stringify(identity(header)))) {
+  if (headers.some(h => h.numeroContaHospital !== header.numeroContaHospital || norm(h.nomePaciente) !== norm(header.nomePaciente) || norm(h.convenioNome) !== norm(header.convenioNome) || h.convenioCodigo !== header.convenioCodigo || (h.numeroGuia && header.numeroGuia && h.numeroGuia !== header.numeroGuia))) {
     throw new TRPCError({ code: "CONFLICT", message: "A consulta retornou identidades diferentes. Nenhum snapshot foi aplicado." });
   }
   if (header.competencia && !/^\d{4}[-/](0[1-9]|1[0-2])$/.test(header.competencia)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Competência inválida na origem." });
   const conveniosHospital = await db.select().from(convenios).where(and(or(eq(convenios.estabelecimentoId, hospitalId), isNull(convenios.estabelecimentoId)), eq(convenios.ativo, "sim")));
-  const candidates = conveniosHospital.filter((c: any) => (c.estabelecimentoId === null || Number(c.estabelecimentoId) === hospitalId) && c.ativo === "sim"
-    && (header.convenioCodigo ? text(c.codigo) === header.convenioCodigo || text(c.registroAns) === header.convenioCodigo : norm(c.nome) === norm(header.convenioNome)));
+  const activeConvs = conveniosHospital.filter((c: any) => (c.estabelecimentoId === null || Number(c.estabelecimentoId) === hospitalId) && c.ativo === "sim");
+  let candidates = activeConvs.filter((c: any) => (header.convenioCodigo ? text(c.codigo) === header.convenioCodigo || text(c.registroAns) === header.convenioCodigo : norm(c.nome) === norm(header.convenioNome))); if (!candidates.length && !header.convenioCodigo && header.convenioNome) { const hn = norm(header.convenioNome), hc = hn.replace(/[^A-Z0-9]/g, ""); candidates = activeConvs.filter((c: any) => { const cn = norm(c.nome), cc = cn.replace(/[^A-Z0-9]/g, ""); return (cc && cc === hc) || (cn.length >= 4 && hn.length >= 4 && (cn.includes(hn) || hn.includes(cn))); }); }
   if (candidates.length !== 1 || !Number.isSafeInteger(Number(candidates[0].id)) || Number(candidates[0].id) <= 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O convênio da origem deve resolver exatamente um cadastro canônico ativo, global ou do hospital." });
   const convenio = candidates[0];
   const cabecalho = { ...header, convenioId: Number(convenio.id), convenioNome: String(convenio.nome) };

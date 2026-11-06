@@ -45,7 +45,7 @@ function tokenize(query: string, dialect?: Dialect): Token[] {
     if (whitespace.test(c)) { i++; continue; }
     if (query.startsWith("--", i)) {
       // MySQL requires whitespace after '--'; do not silently hide executable SQL.
-      if (dialect !== "sqlserver" && i + 2 < query.length && !whitespace.test(query[i + 2])) throw invalidQuery();
+      if (dialect === "mysql" ? (i + 2 < query.length && !whitespace.test(query[i + 2])) : (dialect !== "sqlserver" && i + 2 < query.length && !whitespace.test(query[i + 2]) && !(i === 0 || whitespace.test(query[i - 1])))) throw invalidQuery();
       i += 2;
       while (i < query.length && query[i] !== "\n" && query[i] !== "\r") i++;
       continue;
@@ -68,7 +68,7 @@ function tokenize(query: string, dialect?: Dialect): Token[] {
       let closed = false;
       while (i < query.length) {
         // Backslash escapes depend on SQL_MODE / dialect. Never guess quote boundaries.
-        if (query[i] === "\\") throw invalidQuery();
+        if (query[i] === "\\") { if (c === "'" && /^[nrt]$/.test(query[i + 1] || "")) { i += 2; continue; } throw invalidQuery(); }
         if (query[i] === close) {
           if (query[i + 1] === close) { i += 2; continue; }
           i++;
@@ -232,10 +232,10 @@ const safeFunctions = new Set((
   "COUNT SUM AVG MIN MAX COALESCE NULLIF IFNULL ISNULL NVL NVL2 GREATEST LEAST " +
   "CAST CONVERT TRY_CAST TRY_CONVERT TO_CHAR TO_DATE TO_NUMBER DATE_FORMAT " +
   "UPPER LOWER LENGTH CHAR_LENGTH CHARACTER_LENGTH LEN OCTET_LENGTH " +
-  "TRIM LTRIM RTRIM SUBSTRING SUBSTR LEFT RIGHT REPLACE CONCAT CONCAT_WS " +
+  "TRIM LTRIM RTRIM LPAD RPAD SUBSTRING SUBSTR LEFT RIGHT REPLACE REGEXP_REPLACE TRANSLATE SPLIT_PART CHR ASCII DECODE INITCAP TO_TIMESTAMP STRING_AGG LISTAGG CONCAT CONCAT_WS " +
   "EXTRACT DATE YEAR MONTH DAY DAYOFMONTH DATEPART DATEDIFF DATEADD " +
   "ROW_NUMBER RANK DENSE_RANK CHARINDEX INSTR POSITION " +
-  "CHAR VARCHAR NCHAR NVARCHAR DECIMAL NUMERIC NUMBER FLOAT DOUBLE SIGNED UNSIGNED"
+  "CHAR VARCHAR VARCHAR2 NCHAR NVARCHAR NVARCHAR2 TEXT INT INTEGER BIGINT SMALLINT DECIMAL NUMERIC NUMBER FLOAT DOUBLE REAL SIGNED UNSIGNED"
 ).split(/\s+/));
 const groupingWords = new Set((
   "SELECT DISTINCT ALL AS IN EXISTS NOT AND OR ON WHERE HAVING FROM JOIN " +
@@ -269,7 +269,7 @@ export function assertReadOnlyAccountQuery(query: string, params: unknown[]): vo
       if (open === undefined) throw invalidQuery();
       pairs.set(open, index);
     }
-    if (token.kind === "native" || forbiddenWords.has(upper(token))) throw invalidQuery();
+    if (token.kind === "native" || (forbiddenWords.has(upper(token)) && !(["REPLACE", "TRUNCATE"].includes(upper(token)) && tokens[index + 1]?.text === "("))) throw invalidQuery();
     if (token.text === ":" || token.text === "[" || token.text === "]") throw invalidQuery();
     // Avoid alternative string syntaxes (Oracle q'', PostgreSQL E'', introducers).
     if (token.kind === "literal" && index > 0 && tokens[index - 1].end === token.start && tokens[index - 1].kind === "word" && upper(tokens[index - 1]) !== "N") throw invalidQuery();
