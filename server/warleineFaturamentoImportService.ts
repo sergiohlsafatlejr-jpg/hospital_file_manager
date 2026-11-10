@@ -1,12 +1,11 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
 import { extname } from "node:path";
-import readline from "node:readline";
 import ExcelJSImport from "exceljs";
 import Decimal from "decimal.js";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import { getRawPool } from "./db";
+import { iterateWarleineCsvZipRows, splitWarleineCsvRecord } from "./warleineCsvZipReader";
 
 const ExcelJS = ExcelJSImport as unknown as typeof import("exceljs");
 
@@ -82,6 +81,7 @@ export type WarleineImportOptions = {
   fileName: string;
   estabelecimentoId: number;
   userId: number;
+  loteId?: number;
   configId?: number | null;
   publish?: boolean;
   replaceCompetencies?: boolean;
@@ -100,6 +100,7 @@ export type WarleineImportProgress = {
 
 export type WarleineImportResult = WarleineImportProgress & {
   loteId: number;
+  status: "publicado" | "validado";
   fileHash: string;
   publishedRows: number;
   reusedExistingLot: boolean;
@@ -122,64 +123,13 @@ export function normalizeWarleineHeader(value: unknown): string {
 }
 
 export function splitWarleineCsvLine(line: string, delimiter = ";"): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (ch === delimiter && !inQuotes) {
-      result.push(current);
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  result.push(current);
-  return result;
+  return splitWarleineCsvRecord(line, delimiter);
 }
 
-async function* iterateWarleineFileRows(filePath: string, fileName: string): AsyncGenerator<unknown[]> {
+export async function* iterateWarleineFileRows(filePath: string, fileName: string, deadlineAtMs?: number): AsyncGenerator<unknown[]> {
   const ext = extname(fileName || filePath).toLowerCase();
-  if (ext === ".csv") {
-    const rl = readline.createInterface({
-      input: createReadStream(filePath, { encoding: "utf8" }),
-      crlfDelay: Infinity,
-    });
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      yield splitWarleineCsvLine(line);
-    }
-    return;
-  }
-  if (ext === ".zip") {
-    const proc = spawn("tar", ["-O", "-xf", filePath], { stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
-    proc.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    const exitPromise = new Promise<number>((resolve, reject) => {
-      proc.on("error", reject);
-      proc.on("close", (code) => resolve(code ?? 0));
-    });
-    const rl = readline.createInterface({
-      input: proc.stdout,
-      crlfDelay: Infinity,
-    });
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      yield splitWarleineCsvLine(line);
-    }
-    const exitCode = await exitPromise;
-    if (exitCode !== 0 && stderr.trim()) {
-      throw new Error(`Não foi possível descompactar o arquivo ZIP Warleine: ${stderr.trim().slice(0, 300)}`);
-    }
+  if (ext === ".csv" || ext === ".zip") {
+    yield* iterateWarleineCsvZipRows(filePath, fileName, { deadlineAtMs });
     return;
   }
   let worksheetCount = 0;
@@ -610,6 +560,7 @@ async function publishWarleineLot(connection: PoolConnection, loteId: number, es
 export async function importWarleineFaturamentoFile(options: WarleineImportOptions): Promise<WarleineImportResult> {
   if (!Number.isInteger(options.estabelecimentoId) || options.estabelecimentoId <= 0) throw new Error("Estabelecimento inválido.");
   if (!Number.isInteger(options.userId) || options.userId <= 0) throw new Error("Usuário inválido.");
+  if (options.loteId !== undefined && (!Number.isSafeInteger(options.loteId) || options.loteId <= 0)) throw new Error("Lote Warleine inválido.");
   if (!options.claimToken?.trim()) throw new Error("O importador Warleine exige claimToken emitido pelo worker persistente.");
   await fs.access(options.filePath);
   assertWarleineDeadline(options.deadlineAtMs);
@@ -621,8 +572,10 @@ export async function importWarleineFaturamentoFile(options: WarleineImportOptio
   if (!pool) throw new Error("Banco indisponível");
   const connection = await pool.getConnection();
   let loteId = 0;
+  let initialTransactionOpen = false;
   try {
     await connection.beginTransaction();
+    initialTransactionOpen = true;
     const [establishmentRows] = await connection.query<RowDataPacket[]>("SELECT id FROM estabelecimentos WHERE id=? FOR UPDATE", [options.estabelecimentoId]);
     if (!establishmentRows[0]) throw new Error("Estabelecimento não encontrado para a importação Warleine.");
     if (options.configId) {
@@ -631,16 +584,20 @@ export async function importWarleineFaturamentoFile(options: WarleineImportOptio
     }
     const [existingRows] = await connection.query<RowDataPacket[]>("SELECT *, leaseExpiresAt>NOW() AS leaseAtivoDb FROM warleine_faturamento_lotes WHERE estabelecimentoId=? AND arquivoHash=? LIMIT 1 FOR UPDATE", [options.estabelecimentoId, fileHash]);
     const existing = existingRows[0];
+    if (existing && options.loteId !== undefined && Number(existing.id) !== options.loteId) throw new Error("O arquivo não corresponde ao lote Warleine reservado.");
     if (existing?.status === "publicado") {
       await connection.commit();
-      return { loteId: Number(existing.id), fileHash, phase: "completed", processedRows: Number(existing.totalLinhas || 0), validRows: Number(existing.totalValidas || 0), warningRows: Number(existing.totalAvisos || 0), rejectedRows: Number(existing.totalRejeitadas || 0), publishedRows: Number(existing.totalPublicadas || 0), reusedExistingLot: true, competencies: Array.isArray(existing.competencias) ? existing.competencias.map(String) : JSON.parse(String(existing.competencias || "[]")) };
+      initialTransactionOpen = false;
+      return { loteId: Number(existing.id), status: "publicado", fileHash, phase: "completed", processedRows: Number(existing.totalLinhas || 0), validRows: Number(existing.totalValidas || 0), warningRows: Number(existing.totalAvisos || 0), rejectedRows: Number(existing.totalRejeitadas || 0), publishedRows: Number(existing.totalPublicadas || 0), reusedExistingLot: true, competencies: Array.isArray(existing.competencias) ? existing.competencias.map(String) : JSON.parse(String(existing.competencias || "[]")) };
     }
     if (!existing) {
       await connection.rollback();
+      initialTransactionOpen = false;
       throw new Error("O arquivo Warleine deve ser reservado na fila persistente antes do processamento.");
     }
     if (String(existing.claimToken || "") !== options.claimToken || !existing.leaseAtivoDb) {
       await connection.rollback();
+      initialTransactionOpen = false;
       throw new Error("O job Warleine não pertence a este worker ou o lease expirou.");
     }
     loteId = Number(existing.id);
@@ -650,6 +607,7 @@ export async function importWarleineFaturamentoFile(options: WarleineImportOptio
     const [updateResult] = await connection.execute<any>("UPDATE warleine_faturamento_lotes SET status='processando', erroResumo=NULL, totalLinhas=0, totalValidas=0, totalAvisos=0, totalRejeitadas=0, totalPublicadas=0, atualizadoEm=NOW() WHERE id=? AND estabelecimentoId=? AND claimToken=? AND leaseExpiresAt>NOW()", [loteId, options.estabelecimentoId, options.claimToken]);
     if (Number(updateResult.affectedRows || 0) !== 1) throw new Error("O lease do job Warleine foi perdido antes do processamento.");
     await connection.commit();
+    initialTransactionOpen = false;
     await renewWarleineLease(connection, loteId, options.estabelecimentoId, options.claimToken);
 
     progress.phase = "staging";
@@ -659,7 +617,7 @@ export async function importWarleineFaturamentoFile(options: WarleineImportOptio
     const competencies = new Set<string>();
     const seenLineHashes = new Set<string>();
     let headerValidated = false;
-    for await (const values of iterateWarleineFileRows(options.filePath, options.fileName)) {
+    for await (const values of iterateWarleineFileRows(options.filePath, options.fileName, options.deadlineAtMs)) {
       if (!headerValidated) {
         const headers = values.slice(0, WARLEINE_XLSX_HEADERS.length).map(normalizeWarleineHeader);
         const mismatch = WARLEINE_XLSX_HEADERS.findIndex((expected, index) => headers[index] !== expected);
@@ -713,11 +671,11 @@ export async function importWarleineFaturamentoFile(options: WarleineImportOptio
     }
     progress.phase = "completed";
     options.onProgress?.({ ...progress });
-    return { ...progress, loteId, fileHash, publishedRows, reusedExistingLot: false, competencies: competencyList };
+    return { ...progress, loteId, status: options.publish ? "publicado" : "validado", fileHash, publishedRows, reusedExistingLot: false, competencies: competencyList };
   } catch (error) {
+    if (initialTransactionOpen) await connection.rollback().catch(() => undefined);
     if (loteId) {
-      const errorMessage = error instanceof Error ? error.message.slice(0, 2000) : String(error).slice(0, 2000);
-      const params = [errorMessage, loteId, options.estabelecimentoId];
+      const params = ["WARLEINE_IMPORT_FAILED", loteId, options.estabelecimentoId];
       await connection.execute(`UPDATE warleine_faturamento_lotes SET status='erro', erroResumo=?, claimToken=NULL, claimedBy=NULL, leaseExpiresAt=NULL, atualizadoEm=NOW() WHERE id=? AND estabelecimentoId=? AND claimToken=? AND leaseExpiresAt>NOW()`, [...params, options.claimToken]).catch(() => undefined);
     }
     throw error;
