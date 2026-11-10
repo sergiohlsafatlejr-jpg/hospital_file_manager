@@ -1,11 +1,14 @@
-import { access, readFile, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import "dotenv/config";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path, { basename } from "node:path";
 import { storagePut } from "../server/storage";
 import { encryptWarleineFile } from "../server/warleineFileVault";
 import {
   hashWarleineFile,
   reserveWarleineImportJob,
 } from "../server/warleineFaturamentoImportService";
+import { processNextWarleineImportJob } from "../server/warleineFaturamentoWorker";
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -17,9 +20,10 @@ const estabelecimentoId = Number(arg("--estabelecimento"));
 const userId = Number(arg("--usuario") || "1");
 const configIdRaw = arg("--config");
 const replaceCompetencies = process.argv.includes("--substituir-competencias");
+const processNow = process.argv.includes("--processar-agora");
 
 if (!filePath || !Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0 || !Number.isInteger(userId) || userId <= 0) {
-  console.error("Uso: pnpm tsx scripts/importar-faturamento-warleine.ts --arquivo /caminho/arquivo.xlsx --estabelecimento ID [--usuario ID] [--config ID] --substituir-competencias");
+  console.error("Uso: pnpm tsx scripts/importar-faturamento-warleine.ts --arquivo /caminho/arquivo.(xlsx|csv|zip) --estabelecimento ID [--usuario ID] [--config ID] --substituir-competencias [--processar-agora]");
   process.exit(1);
 }
 if (!replaceCompetencies) {
@@ -30,9 +34,21 @@ if (!replaceCompetencies) {
 await access(filePath);
 const metadata = await stat(filePath);
 const fileHash = await hashWarleineFile(filePath);
-const storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
+let storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
 const encryptedFile = encryptWarleineFile(await readFile(filePath));
-await storagePut(storageKey, encryptedFile, "application/octet-stream");
+try {
+  await storagePut(storageKey, encryptedFile, "application/octet-stream");
+} catch (storageErr) {
+  if (process.env.NODE_ENV === "production" && process.env.BUILT_IN_FORGE_API_URL) {
+    throw storageErr;
+  }
+  const localDir = path.join(os.tmpdir(), "portal-safatle-warleine-vault", String(estabelecimentoId));
+  await mkdir(localDir, { recursive: true });
+  const localVaultPath = path.join(localDir, `${fileHash}.bin`);
+  await writeFile(localVaultPath, encryptedFile);
+  storageKey = `local:${localVaultPath}`;
+}
+
 const result = await reserveWarleineImportJob({
   estabelecimentoId,
   userId,
@@ -43,12 +59,18 @@ const result = await reserveWarleineImportJob({
   storageKey,
 });
 
+if (processNow && result.status !== "publicado") {
+  await processNextWarleineImportJob();
+}
+
 console.log(JSON.stringify({
   ...result,
   fileHash,
-  processamento: result.status === "publicado" ? "concluido" : "enfileirado",
+  processamento: result.status === "publicado" || processNow ? "concluido" : "enfileirado",
   mensagem: result.status === "publicado"
     ? "O arquivo já estava publicado; o lote existente foi reutilizado."
-    : "Arquivo criptografado, persistido e enfileirado para o worker com lease.",
+    : processNow
+      ? "Arquivo criptografado, processado e publicado com sucesso."
+      : "Arquivo criptografado, persistido e enfileirado para o worker com lease.",
 }, null, 2));
 process.exit(0);

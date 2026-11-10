@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { extname, join } from "node:path";
 import { nanoid } from "nanoid";
 import type { RowDataPacket } from "mysql2/promise";
 import { getRawPool } from "./db";
@@ -74,6 +74,11 @@ export async function claimNextWarleineJob(): Promise<WarleineJobRow | null> {
 }
 
 async function downloadJobFile(storageKey: string, localPath: string): Promise<void> {
+  if (storageKey.startsWith("local:")) {
+    const encryptedLocal = await readFile(storageKey.slice("local:".length));
+    await writeFile(localPath, decryptWarleineFile(encryptedLocal));
+    return;
+  }
   const { url } = await storageGet(storageKey);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Falha ao recuperar arquivo durável (${response.status}).`);
@@ -90,7 +95,8 @@ export async function processNextWarleineImportJob(): Promise<boolean> {
     job = await claimNextWarleineJob();
     if (!job) return false;
     await mkdir(WORK_DIR, { recursive: true, mode: 0o700 });
-    localPath = join(WORK_DIR, `${job.id}-${nanoid()}.xlsx`);
+    const ext = [".xlsx", ".csv", ".zip"].includes(extname(job.arquivoNome || "").toLowerCase()) ? extname(job.arquivoNome).toLowerCase() : ".xlsx";
+    localPath = join(WORK_DIR, `${job.id}-${nanoid()}${ext}`);
     await downloadJobFile(job.arquivoStorageKey, localPath);
     await importWarleineFaturamentoFile({
       filePath: localPath,

@@ -85,6 +85,10 @@ export const warleineFaturamentoRouter = router({
     .input(estabelecimentoSchema)
     .query(({ input }) => getWarleineLotSummary(input.estabelecimentoId)),
 
+  lotesRelatorio: reportProcedure("relFaturadoRecebido")
+    .input(estabelecimentoSchema)
+    .query(({ input }) => getWarleineLotSummary(input.estabelecimentoId)),
+
   aprovarReducaoSnapshot: adminProcedure
     .input(estabelecimentoSchema.extend({
       loteId: z.number().int().positive(),

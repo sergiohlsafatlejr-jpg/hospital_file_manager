@@ -8,6 +8,7 @@ import {
   parseWarleineCivilDate,
   parseWarleineDecimal,
   parseWarleineRow,
+  splitWarleineCsvLine,
 } from "./warleineFaturamentoImportService";
 
 function validRow(): unknown[] {
@@ -46,6 +47,14 @@ describe("importador de faturamento Warleine", () => {
     expect(WARLEINE_XLSX_HEADERS.filter((header) => header === "descricao")).toHaveLength(2);
     expect(WARLEINE_XLSX_HEADERS.filter((header) => header === "codrecur")).toHaveLength(2);
     expect(normalizeWarleineHeader(" NOMEConv ")).toBe("nomeconv");
+    expect(normalizeWarleineHeader('"nomeconv"')).toBe("nomeconv");
+  });
+
+  it("divide linha CSV com ponto e vírgula e preserva campos entre aspas", () => {
+    const csvHeader = WARLEINE_XLSX_HEADERS.map((h) => `"${h}"`).join(";");
+    const cols = splitWarleineCsvLine(csvHeader);
+    expect(cols).toHaveLength(48);
+    expect(cols.map(normalizeWarleineHeader)).toEqual([...WARLEINE_XLSX_HEADERS]);
   });
 
   it("normaliza competência, datas civis e valores sem usar ponto flutuante no banco", () => {

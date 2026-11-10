@@ -1,5 +1,8 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
+import { extname } from "node:path";
+import readline from "node:readline";
 import ExcelJSImport from "exceljs";
 import Decimal from "decimal.js";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
@@ -115,7 +118,81 @@ function clean(value: unknown): string {
 }
 
 export function normalizeWarleineHeader(value: unknown): string {
-  return clean(value).toLocaleLowerCase("pt-BR");
+  return clean(value).replace(/^"|"$/g, "").trim().toLocaleLowerCase("pt-BR");
+}
+
+export function splitWarleineCsvLine(line: string, delimiter = ";"): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+async function* iterateWarleineFileRows(filePath: string, fileName: string): AsyncGenerator<unknown[]> {
+  const ext = extname(fileName || filePath).toLowerCase();
+  if (ext === ".csv") {
+    const rl = readline.createInterface({
+      input: createReadStream(filePath, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    });
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      yield splitWarleineCsvLine(line);
+    }
+    return;
+  }
+  if (ext === ".zip") {
+    const proc = spawn("tar", ["-O", "-xf", filePath], { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    proc.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const exitPromise = new Promise<number>((resolve, reject) => {
+      proc.on("error", reject);
+      proc.on("close", (code) => resolve(code ?? 0));
+    });
+    const rl = readline.createInterface({
+      input: proc.stdout,
+      crlfDelay: Infinity,
+    });
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      yield splitWarleineCsvLine(line);
+    }
+    const exitCode = await exitPromise;
+    if (exitCode !== 0 && stderr.trim()) {
+      throw new Error(`Não foi possível descompactar o arquivo ZIP Warleine: ${stderr.trim().slice(0, 300)}`);
+    }
+    return;
+  }
+  let worksheetCount = 0;
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(filePath, { worksheets: "emit", sharedStrings: "cache", styles: "cache", hyperlinks: "ignore", entries: "ignore" });
+  for await (const worksheet of workbookReader) {
+    worksheetCount += 1;
+    if (worksheetCount > 1) {
+      throw new Error("O arquivo Warleine deve conter exatamente uma aba. Separe outras abas em arquivos independentes para manter o snapshot auditável.");
+    }
+    for await (const row of worksheet) {
+      yield Array.from({ length: Math.max(row.cellCount, WARLEINE_XLSX_HEADERS.length) }, (_, index) => row.getCell(index + 1).value);
+    }
+  }
 }
 
 function hashText(value: string): string {
@@ -436,7 +513,7 @@ async function materializePublishedItems(connection: PoolConnection, loteId: num
     await connection.execute("DELETE FROM warleine_faturamento_itens WHERE loteId=? AND estabelecimentoId=? AND ativoParaRelatorio=0", [loteId, estabelecimentoId]);
   });
   let cursor = 0;
-  const batchSize = 500;
+  const batchSize = 1000;
   while (true) {
     assertWarleineDeadline(deadlineAtMs);
     const [rows] = await connection.query<RowDataPacket[]>(`
@@ -582,50 +659,41 @@ export async function importWarleineFaturamentoFile(options: WarleineImportOptio
     const competencies = new Set<string>();
     const seenLineHashes = new Set<string>();
     let headerValidated = false;
-    let worksheetCount = 0;
-    const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(options.filePath, { worksheets: "emit", sharedStrings: "cache", styles: "cache", hyperlinks: "ignore", entries: "ignore" });
-    for await (const worksheet of workbookReader) {
-      worksheetCount += 1;
-      if (worksheetCount > 1) {
-        throw new Error("O arquivo Warleine deve conter exatamente uma aba. Separe outras abas em arquivos independentes para manter o snapshot auditável.");
+    for await (const values of iterateWarleineFileRows(options.filePath, options.fileName)) {
+      if (!headerValidated) {
+        const headers = values.slice(0, WARLEINE_XLSX_HEADERS.length).map(normalizeWarleineHeader);
+        const mismatch = WARLEINE_XLSX_HEADERS.findIndex((expected, index) => headers[index] !== expected);
+        if (mismatch >= 0) throw new Error(`Layout Warleine incompatível na coluna ${mismatch + 1}: esperado ${WARLEINE_XLSX_HEADERS[mismatch]}.`);
+        headerValidated = true;
+        continue;
       }
-      for await (const row of worksheet) {
-        const values = Array.from({ length: Math.max(row.cellCount, WARLEINE_XLSX_HEADERS.length) }, (_, index) => row.getCell(index + 1).value);
-        if (!headerValidated) {
-          const headers = values.slice(0, WARLEINE_XLSX_HEADERS.length).map(normalizeWarleineHeader);
-          const mismatch = WARLEINE_XLSX_HEADERS.findIndex((expected, index) => headers[index] !== expected);
-          if (mismatch >= 0) throw new Error(`Layout Warleine incompatível na coluna ${mismatch + 1}: esperado ${WARLEINE_XLSX_HEADERS[mismatch]}.`);
-          headerValidated = true;
-          continue;
-        }
-        progress.processedRows += 1;
-        if (progress.processedRows % 1_000 === 0) assertWarleineDeadline(options.deadlineAtMs);
-        const parsed = parseWarleineRow(values);
-        if (parsed.canonical) {
-          if (seenLineHashes.has(parsed.canonical.linhaHash)) parsed.warnings.push("CONTEUDO_REPETIDO_NO_ARQUIVO");
-          seenLineHashes.add(parsed.canonical.linhaHash);
-        }
-        const status = parsed.errors.length ? "rejeitado" : parsed.warnings.length ? "aviso" : "valido";
-        if (status === "rejeitado") progress.rejectedRows += 1;
-        else if (status === "aviso") progress.warningRows += 1;
-        else progress.validRows += 1;
-        if (parsed.canonical) {
-          competencies.add(parsed.canonical.competencia);
-          stageBatch.push({ loteId, estabelecimentoId: options.estabelecimentoId, configId: options.configId || null, line: progress.processedRows, status, warning: parsed.warnings.join(",") || null, raw: parsed.canonical });
-        } else {
-          stageBatch.push({ loteId, estabelecimentoId: options.estabelecimentoId, configId: options.configId || null, line: progress.processedRows, status, warning: null, raw: parsed.raw });
-          quarantineBatch.push({ loteId, estabelecimentoId: options.estabelecimentoId, line: progress.processedRows, code: parsed.errors[0] || "LINHA_INVALIDA", detail: parsed.errors.join(","), raw: parsed.raw });
-        }
-        if (stageBatch.length >= 300) {
-          await persistWarleineStageBatch(connection, loteId, options.estabelecimentoId, options.claimToken, stageBatch.splice(0), quarantineBatch.splice(0));
-        }
-        if (progress.processedRows % 25_000 === 0) {
-          await renewWarleineLease(connection, loteId, options.estabelecimentoId, options.claimToken);
-          const progressParams = [progress.processedRows, progress.validRows, progress.warningRows, progress.rejectedRows, loteId, options.estabelecimentoId];
-          const [progressResult] = await connection.execute<any>("UPDATE warleine_faturamento_lotes SET totalLinhas=?, totalValidas=?, totalAvisos=?, totalRejeitadas=?, atualizadoEm=NOW() WHERE id=? AND estabelecimentoId=? AND claimToken=? AND leaseExpiresAt>NOW()", [...progressParams, options.claimToken]);
-          if (Number(progressResult.affectedRows || 0) !== 1) throw new Error("O lease do job Warleine foi perdido durante o staging.");
-          options.onProgress?.({ ...progress });
-        }
+      progress.processedRows += 1;
+      if (progress.processedRows % 1_000 === 0) assertWarleineDeadline(options.deadlineAtMs);
+      const parsed = parseWarleineRow(values);
+      if (parsed.canonical) {
+        if (seenLineHashes.has(parsed.canonical.linhaHash)) parsed.warnings.push("CONTEUDO_REPETIDO_NO_ARQUIVO");
+        seenLineHashes.add(parsed.canonical.linhaHash);
+      }
+      const status = parsed.errors.length ? "rejeitado" : parsed.warnings.length ? "aviso" : "valido";
+      if (status === "rejeitado") progress.rejectedRows += 1;
+      else if (status === "aviso") progress.warningRows += 1;
+      else progress.validRows += 1;
+      if (parsed.canonical) {
+        competencies.add(parsed.canonical.competencia);
+        stageBatch.push({ loteId, estabelecimentoId: options.estabelecimentoId, configId: options.configId || null, line: progress.processedRows, status, warning: parsed.warnings.join(",") || null, raw: parsed.canonical });
+      } else {
+        stageBatch.push({ loteId, estabelecimentoId: options.estabelecimentoId, configId: options.configId || null, line: progress.processedRows, status, warning: null, raw: parsed.raw });
+        quarantineBatch.push({ loteId, estabelecimentoId: options.estabelecimentoId, line: progress.processedRows, code: parsed.errors[0] || "LINHA_INVALIDA", detail: parsed.errors.join(","), raw: parsed.raw });
+      }
+      if (stageBatch.length >= 1000) {
+        await persistWarleineStageBatch(connection, loteId, options.estabelecimentoId, options.claimToken, stageBatch.splice(0), quarantineBatch.splice(0));
+      }
+      if (progress.processedRows % 25_000 === 0) {
+        await renewWarleineLease(connection, loteId, options.estabelecimentoId, options.claimToken);
+        const progressParams = [progress.processedRows, progress.validRows, progress.warningRows, progress.rejectedRows, loteId, options.estabelecimentoId];
+        const [progressResult] = await connection.execute<any>("UPDATE warleine_faturamento_lotes SET totalLinhas=?, totalValidas=?, totalAvisos=?, totalRejeitadas=?, atualizadoEm=NOW() WHERE id=? AND estabelecimentoId=? AND claimToken=? AND leaseExpiresAt>NOW()", [...progressParams, options.claimToken]);
+        if (Number(progressResult.affectedRows || 0) !== 1) throw new Error("O lease do job Warleine foi perdido durante o staging.");
+        options.onProgress?.({ ...progress });
       }
     }
     if (!headerValidated) throw new Error("A planilha Warleine não possui cabeçalho legível.");

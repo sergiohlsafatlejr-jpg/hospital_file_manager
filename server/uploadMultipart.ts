@@ -36,6 +36,7 @@ import {
   reserveWarleineImportJob,
 } from "./warleineFaturamentoImportService";
 import { encryptWarleineFile } from "./warleineFileVault";
+import { processNextWarleineImportJob } from "./warleineFaturamentoWorker";
 import {
   assertInternalProcessingReady,
   dispatchInternalFileProcessing,
@@ -86,9 +87,9 @@ const uploadWarleineXlsx = multer({
         `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`
       ),
   }),
-  limits: { fileSize: 128 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 300 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) =>
-    callback(null, extname(file.originalname).toLowerCase() === ".xlsx"),
+    callback(null, [".xlsx", ".csv", ".zip"].includes(extname(file.originalname).toLowerCase())),
 });
 
 const contratosPdfUploadDir = path.join(os.tmpdir(), "portal-safatle-contratos-pdf");
@@ -165,6 +166,11 @@ async function authorizeWarleineUpload(
         user.id,
         estabelecimentoId,
         "contaConvenio"
+      )) ||
+      (await db.verificarAcessoModulo(
+        user.id,
+        estabelecimentoId,
+        "relFaturadoRecebido"
       ));
     if (!allowedEstablishment || !allowedModule) {
       res
@@ -860,7 +866,7 @@ router.post(
     next();
   },
   authorizeWarleineUpload,
-  uploadWarleineXlsx.single("file"),
+  uploadWarleineXlsx.single('file'),
   async (req: WarleineUploadRequest, res: Response) => {
     let tempPath = req.file?.path;
     try {
@@ -869,7 +875,7 @@ router.post(
       if (!req.file || !tempPath)
         return res
           .status(400)
-          .json({ error: "Selecione um arquivo XLSX do Warleine." });
+          .json({ error: "Selecione um arquivo CSV, ZIP ou XLSX do Warleine." });
       if (!user || !estabelecimentoId) {
         await fs.unlink(tempPath).catch(() => undefined);
         return res
@@ -884,7 +890,7 @@ router.post(
             error: "A unidade do formulário diverge da autorização do upload.",
           });
       }
-      if (req.body.confirmarSubstituicao !== "true") {
+      if (req.body.confirmarSubstituicao !== 'true') {
         await fs.unlink(tempPath).catch(() => undefined);
         return res
           .status(400)
@@ -896,11 +902,22 @@ router.post(
 
       const processingPath = tempPath;
       const fileHash = await hashWarleineFile(processingPath);
-      const storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
+      let storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
       const encryptedFile = encryptWarleineFile(
         await fs.readFile(processingPath)
       );
-      await storagePut(storageKey, encryptedFile, "application/octet-stream");
+      try {
+        await storagePut(storageKey, encryptedFile, "application/octet-stream");
+      } catch (storageErr) {
+        if (process.env.NODE_ENV === "production" && process.env.BUILT_IN_FORGE_API_URL) {
+          throw storageErr;
+        }
+        const localDir = path.join(os.tmpdir(), "portal-safatle-warleine-vault", String(estabelecimentoId));
+        await fs.mkdir(localDir, { recursive: true });
+        const localVaultPath = path.join(localDir, `${fileHash}.bin`);
+        await fs.writeFile(localVaultPath, encryptedFile);
+        storageKey = `local:${localVaultPath}`;
+      }
       const job = await reserveWarleineImportJob({
         estabelecimentoId,
         userId: user.id,
@@ -911,6 +928,9 @@ router.post(
       });
       await fs.unlink(processingPath).catch(() => undefined);
       tempPath = undefined;
+      if (job.status !== "publicado") {
+        void processNextWarleineImportJob().catch(() => undefined);
+      }
       return res.status(job.status === "publicado" ? 200 : 202).json({
         success: true,
         processandoEmBackground: job.status !== "publicado",
