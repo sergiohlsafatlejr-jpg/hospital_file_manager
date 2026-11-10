@@ -214,6 +214,7 @@ export function ImportarWarleineDialog({
               {attempt?.sessionId && <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => { void verifyAttempt(); }}>
                 <RefreshCw className="mr-1 h-3 w-3" />Verificar tentativa
               </Button>}
+              {(!attempt?.sessionId || attemptStatus?.state === "erro" || attemptStatus?.state === "expirado" || attemptStatus?.jobStatus === "erro") && <Button type="button" variant="ghost" size="sm" disabled={uploading} onClick={() => { try { clearWarleineAttempt(sessionStorage, userId, estabelecimentoId); setAttempt(null); setAttemptStatus(null); setError(null); } catch { /* ignore */ } }}>Nova tentativa</Button>}
             </div>
           )}
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">

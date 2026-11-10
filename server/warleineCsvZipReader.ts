@@ -133,6 +133,284 @@ function updateCrc(buffer: Buffer, previous: number): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+/** Streaming LZMA1 decoder for PKWARE ZIP compressionMethod 14 (APPNOTE 5.8.8). */
+class ZipLzmaDecompressor extends Transform {
+  bytesWritten = 0;
+  private buf: Buffer = Buffer.alloc(0);
+  private inPos = 0;
+  private headerParsed = false;
+  private finishedStream = false;
+  private lc = 0;
+  private lp = 0;
+  private pb = 0;
+  private posStateMask = 0;
+  private lpMask = 0;
+  private dictCap = 0;
+  private probs!: Uint16Array;
+  private outWindow!: Uint8Array;
+  private outPos = 0;
+  private flushStart = 0;
+  private totalOut = 0;
+  private code = 0;
+  private range = 0xffffffff;
+  private state = 0;
+  private rep0 = 0;
+  private rep1 = 0;
+  private rep2 = 0;
+  private rep3 = 0;
+  private readonly hasEos: boolean;
+  private readonly expectedSize: number;
+
+  constructor(
+    private readonly entry: Entry,
+    private readonly budget: ReadBudget
+  ) {
+    super();
+    this.hasEos = Boolean(entry.generalPurposeBitFlag & 2);
+    this.expectedSize = entry.uncompressedSize;
+  }
+
+  private readByte(): number {
+    if (this.inPos >= this.buf.length) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+    return this.buf[this.inPos++];
+  }
+
+  private decodeBit(idx: number): number {
+    const prob = this.probs[idx];
+    const bound = (this.range >>> 11) * prob;
+    if ((this.code ^ 0x80000000) < (bound ^ 0x80000000)) {
+      this.range = bound >>> 0;
+      this.probs[idx] = (prob + ((2048 - prob) >>> 5)) & 0xffff;
+      if ((this.range & 0xff000000) === 0) {
+        this.code = ((this.code << 8) | this.readByte()) >>> 0;
+        this.range = (this.range << 8) >>> 0;
+      }
+      return 0;
+    }
+    this.range = (this.range - bound) >>> 0;
+    this.code = (this.code - bound) >>> 0;
+    this.probs[idx] = (prob - (prob >>> 5)) & 0xffff;
+    if ((this.range & 0xff000000) === 0) {
+      this.code = ((this.code << 8) | this.readByte()) >>> 0;
+      this.range = (this.range << 8) >>> 0;
+    }
+    return 1;
+  }
+
+  private decodeTree(base: number, numBits: number): number {
+    let m = 1;
+    for (let i = 0; i < numBits; i++) m = (m << 1) | this.decodeBit(base + m);
+    return m - (1 << numBits);
+  }
+
+  private decodeReverseTree(base: number, numBits: number): number {
+    let m = 1;
+    let symbol = 0;
+    for (let i = 0; i < numBits; i++) {
+      const bit = this.decodeBit(base + m);
+      m = (m << 1) | bit;
+      symbol |= bit << i;
+    }
+    return symbol;
+  }
+
+  private decodeDirectBits(numBits: number): number {
+    let res = 0;
+    for (let i = numBits; i > 0; i--) {
+      this.range >>>= 1;
+      const t = (this.code - this.range) >>> 31;
+      this.code = (this.code - (this.range & (t - 1))) >>> 0;
+      res = (res << 1) | (1 - t);
+      if ((this.range & 0xff000000) === 0) {
+        this.code = ((this.code << 8) | this.readByte()) >>> 0;
+        this.range = (this.range << 8) >>> 0;
+      }
+    }
+    return res;
+  }
+
+  private decodeLen(base: number, posState: number): number {
+    if (this.decodeBit(base) === 0) return this.decodeTree(base + 2 + (posState << 3), 3);
+    if (this.decodeBit(base + 1) === 0) return 8 + this.decodeTree(base + 130 + (posState << 3), 3);
+    return 16 + this.decodeTree(base + 258, 8);
+  }
+
+  private flushOut(): void {
+    if (this.outPos > this.flushStart) {
+      this.budget.check();
+      this.push(Buffer.from(this.outWindow.subarray(this.flushStart, this.outPos)));
+      this.flushStart = this.outPos;
+    }
+  }
+
+  private putByte(b: number): void {
+    this.outWindow[this.outPos++] = b;
+    this.totalOut++;
+    if (this.outPos - this.flushStart >= 65536) this.flushOut();
+    if (this.outPos === this.dictCap) {
+      this.flushOut();
+      this.outPos = 0;
+      this.flushStart = 0;
+    }
+  }
+
+  private processAvailable(finalFlush: boolean): void {
+    if (!this.headerParsed) {
+      if (this.buf.length - this.inPos < 14) {
+        if (finalFlush) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+        return;
+      }
+      const propSize = this.buf.readUInt16LE(this.inPos + 2);
+      if (propSize !== 5) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+      const propByte = this.buf[this.inPos + 4];
+      if (propByte >= 9 * 5 * 5) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+      this.lc = propByte % 9;
+      const rem = Math.floor(propByte / 9);
+      this.lp = rem % 5;
+      this.pb = Math.floor(rem / 5);
+      this.posStateMask = (1 << this.pb) - 1;
+      this.lpMask = (1 << this.lp) - 1;
+      const rawDictSize = this.buf.readUInt32LE(this.inPos + 5);
+      this.dictCap = Math.min(
+        Math.max(rawDictSize, 4096),
+        Math.max(this.expectedSize, 4096),
+        this.budget.limits.maxExpandedBytes,
+        64 * 1024 * 1024
+      );
+      if (this.buf[this.inPos + 9] !== 0) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+      this.code = this.buf.readUInt32BE(this.inPos + 10);
+      this.range = 0xffffffff;
+      this.inPos += 14;
+      this.probs = new Uint16Array(1846 + (768 << (this.lc + this.lp))).fill(1024);
+      this.outWindow = new Uint8Array(this.dictCap);
+      this.headerParsed = true;
+    }
+
+    const minLookahead = finalFlush ? 0 : 64;
+    while (!this.finishedStream && this.buf.length - this.inPos >= minLookahead) {
+      if (!this.hasEos && this.totalOut >= this.expectedSize) {
+        this.finishedStream = true;
+        break;
+      }
+      if (finalFlush && this.inPos >= this.buf.length && this.totalOut >= this.expectedSize) {
+        this.finishedStream = true;
+        break;
+      }
+      const posState = this.totalOut & this.posStateMask;
+      if (this.decodeBit(0 + (this.state << 4) + posState) === 0) {
+        const prevByte = this.totalOut === 0 ? 0 : this.outWindow[(this.outPos === 0 ? this.dictCap : this.outPos) - 1];
+        const litState = ((this.totalOut & this.lpMask) << this.lc) + (prevByte >>> (8 - this.lc));
+        const litBase = 1846 + 768 * litState;
+        let symbol = 1;
+        if (this.state >= 7) {
+          let matchByte = this.outWindow[(this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap];
+          do {
+            const matchBit = (matchByte >> 7) & 1;
+            matchByte <<= 1;
+            const bit = this.decodeBit(litBase + ((1 + matchBit) << 8) + symbol);
+            symbol = (symbol << 1) | bit;
+            if (matchBit !== bit) {
+              while (symbol < 0x100) symbol = (symbol << 1) | this.decodeBit(litBase + symbol);
+              break;
+            }
+          } while (symbol < 0x100);
+        } else {
+          while (symbol < 0x100) symbol = (symbol << 1) | this.decodeBit(litBase + symbol);
+        }
+        this.putByte(symbol & 0xff);
+        this.state = this.state < 4 ? 0 : this.state < 10 ? this.state - 3 : this.state - 6;
+      } else {
+        let len: number;
+        if (this.decodeBit(192 + this.state) === 1) {
+          if (this.decodeBit(204 + this.state) === 0) {
+            if (this.decodeBit(240 + (this.state << 4) + posState) === 0) {
+              this.state = this.state < 7 ? 9 : 11;
+              if (this.rep0 >= this.totalOut) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+              this.putByte(this.outWindow[(this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap]);
+              continue;
+            }
+          } else {
+            let dist: number;
+            if (this.decodeBit(216 + this.state) === 0) {
+              dist = this.rep1;
+            } else {
+              if (this.decodeBit(228 + this.state) === 0) dist = this.rep2;
+              else {
+                dist = this.rep3;
+                this.rep3 = this.rep2;
+              }
+              this.rep2 = this.rep1;
+            }
+            this.rep1 = this.rep0;
+            this.rep0 = dist;
+          }
+          len = this.decodeLen(1332, posState);
+          this.state = this.state < 7 ? 8 : 11;
+        } else {
+          this.rep3 = this.rep2;
+          this.rep2 = this.rep1;
+          this.rep1 = this.rep0;
+          len = this.decodeLen(818, posState);
+          this.state = this.state < 7 ? 7 : 10;
+          const posSlot = this.decodeTree(432 + ((len < 4 ? len : 3) << 6), 6);
+          if (posSlot >= 4) {
+            const numDirectBits = (posSlot >> 1) - 1;
+            this.rep0 = (2 | (posSlot & 1)) << numDirectBits;
+            if (posSlot < 14) {
+              this.rep0 += this.decodeReverseTree(688 + this.rep0 - posSlot - 1, numDirectBits);
+            } else {
+              this.rep0 = (this.rep0 + (this.decodeDirectBits(numDirectBits - 4) << 4)) >>> 0;
+              this.rep0 = (this.rep0 + this.decodeReverseTree(802, 4)) >>> 0;
+              if (this.rep0 === 0xffffffff) {
+                this.finishedStream = true;
+                break;
+              }
+            }
+          } else {
+            this.rep0 = posSlot;
+          }
+        }
+        len += 2;
+        if (this.rep0 >= this.totalOut || this.rep0 >= this.dictCap) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+        for (let i = 0; i < len; i++) {
+          this.putByte(this.outWindow[(this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap]);
+        }
+      }
+    }
+
+    if (this.inPos >= 65536) {
+      this.buf = Buffer.from(this.buf.subarray(this.inPos));
+      this.inPos = 0;
+    }
+  }
+
+  _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    try {
+      this.budget.check();
+      this.bytesWritten += chunk.length;
+      if (this.bytesWritten > this.entry.compressedSize) throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
+      this.buf = this.buf.length === this.inPos ? chunk : Buffer.concat([this.buf.subarray(this.inPos), chunk]);
+      this.inPos = 0;
+      this.processAvailable(false);
+      callback();
+    } catch (err) {
+      callback(err as Error);
+    }
+  }
+
+  _flush(callback: (error?: Error | null) => void): void {
+    try {
+      this.budget.check();
+      this.processAvailable(true);
+      this.flushOut();
+      if (!this.finishedStream || this.inPos !== this.buf.length) throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
+      callback();
+    } catch (err) {
+      callback(err as Error);
+    }
+  }
+}
+
 /** Raw byte guard runs BEFORE csv-parse allocates fields/records. csv-parse owns CSV grammar. */
 class CsvByteGuard extends Transform {
   bytes = 0;
@@ -257,7 +535,7 @@ async function* csvRows(
   source: Readable,
   budget: ReadBudget,
   expected?: Entry,
-  inflate?: zlib.InflateRaw
+  inflate?: zlib.InflateRaw | ZipLzmaDecompressor
 ): AsyncGenerator<string[]> {
   const guard = new CsvByteGuard(budget, expected);
   let records = 0;
@@ -437,7 +715,7 @@ function safeMember(entry: Entry) {
     throw invalid("ZIP_TIPO_MEMBRO_AMBIGUO");
   if (entry.extraFields.some(field => [0x000d, 0x756e].includes(field.id)))
     throw invalid("ZIP_METADADOS_LINK_INDEVIDOS");
-  if (entry.isEncrypted() || ![0, 8].includes(entry.compressionMethod))
+  if (entry.isEncrypted() || ![0, 8, 14].includes(entry.compressionMethod))
     throw invalid("ZIP_ENCRIPTADO_OU_METODO_INDEVIDO");
   if (
     directory &&
@@ -649,7 +927,9 @@ export async function* iterateWarleineCsvZipRows(
         entry,
         entry.compressionMethod === 8
           ? zlib.createInflateRaw({ chunkSize: 16 * 1024 })
-          : undefined
+          : entry.compressionMethod === 14
+            ? new ZipLzmaDecompressor(entry, budget)
+            : undefined
       );
     }
   } catch (error) {

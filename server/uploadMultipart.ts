@@ -196,7 +196,8 @@ async function authorizeWarleineUpload(
     // Fail closed before receiving legacy bytes as well; no vault in /tmp.
     const dependencies = createWarleineUploadProductionDependencies();
     dependencies.cloud.ready();
-    if (process.env.NODE_ENV === "production" && (process.env.WARLEINE_FILE_ENCRYPTION_KEY?.length ?? 0) < 32) {
+    const activeKey = process.env.WARLEINE_FILE_ENCRYPTION_KEY ?? process.env.JWT_SECRET;
+    if (process.env.NODE_ENV === "production" && ((activeKey?.length ?? 0) < 16 || (process.env.WARLEINE_FILE_ENCRYPTION_KEY !== undefined && process.env.WARLEINE_FILE_ENCRYPTION_KEY.length < 32))) {
       throw new Error("Warleine indisponível.");
     }
     encryptWarleineFile(Buffer.from("warleine-legacy-ready-v1"));

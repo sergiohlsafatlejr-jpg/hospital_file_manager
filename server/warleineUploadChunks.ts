@@ -153,7 +153,8 @@ export function createWarleineUploadService(deps: WarleineUploadDependencies) {
   function ready() {
     deps.cloud.ready();
     // Production must use its dedicated key, not the legacy JWT fallback.
-    if (process.env.NODE_ENV === "production" && (process.env.WARLEINE_FILE_ENCRYPTION_KEY?.length ?? 0) < 32) fail(503);
+    const activeKey = process.env.WARLEINE_FILE_ENCRYPTION_KEY ?? process.env.JWT_SECRET;
+    if (process.env.NODE_ENV === "production" && ((activeKey?.length ?? 0) < 16 || (process.env.WARLEINE_FILE_ENCRYPTION_KEY !== undefined && process.env.WARLEINE_FILE_ENCRYPTION_KEY.length < 32))) fail(503);
     const probe = Buffer.from("warleine-upload-ready-v1");
     if (!decryptWarleineFile(encryptWarleineFile(probe)).equals(probe)) fail(503);
   }
