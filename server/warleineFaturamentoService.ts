@@ -631,7 +631,7 @@ export async function getWarleineAccountItems(estabelecimentoId: number, compete
 export async function getWarleineLotSummary(estabelecimentoId: number) {
   const pool = await getRawPool();
   if (!pool) throw new Error("Banco indisponível");
-  const [rows] = await pool.query<RowDataPacket[]>(`SELECT id,arquivoNome,origem,status,tentativas,totalLinhas,totalValidas,totalAvisos,totalRejeitadas,totalPublicadas,valorFaturado,valorTotalRecebido,valorAberto,valorGlosa,erroResumo,competencias,iniciadoEm,validadoEm,publicadoEm FROM warleine_faturamento_lotes WHERE estabelecimentoId=? ORDER BY id DESC LIMIT 20`, [estabelecimentoId]);
+  const [rows] = await pool.query<RowDataPacket[]>(`SELECT id,arquivoNome,origem,status,tentativas,totalLinhas,totalValidas,totalAvisos,totalRejeitadas,totalPublicadas,valorFaturado,valorTotalRecebido,valorAberto,valorGlosa,erroResumo,competencias,iniciadoEm,validadoEm,publicadoEm FROM warleine_faturamento_lotes WHERE estabelecimentoId=? AND origem<>'upload-controle' AND (arquivoStorageKey IS NULL OR arquivoStorageKey NOT LIKE 'warleine-upload:v1:%') ORDER BY id DESC LIMIT 20`, [estabelecimentoId]);
   return rows.map((row) => ({
     id: Number(row.id),
     arquivoNome: String(row.arquivoNome || ""),
@@ -647,7 +647,7 @@ export async function getWarleineLotSummary(estabelecimentoId: number) {
     valorTotalRecebido: money(row.valorTotalRecebido),
     valorAberto: money(row.valorAberto),
     valorGlosa: money(row.valorGlosa),
-    erroResumo: row.erroResumo ? String(row.erroResumo) : null,
+    erroResumo: row.erroResumo ? "Lote com falha de validação/processamento; publicação não confirmada." : null,
     competencias: Array.isArray(row.competencias) ? row.competencias.map(String) : JSON.parse(String(row.competencias || "[]")),
     iniciadoEm: row.iniciadoEm ? String(row.iniciadoEm) : null,
     validadoEm: row.validadoEm ? String(row.validadoEm) : null,

@@ -4,6 +4,7 @@ vi.mock("./db", () => ({ getRawPool: vi.fn() }));
 vi.mock("./storage", () => ({ storageGet: vi.fn() }));
 vi.mock("./warleineFaturamentoImportService", () => ({ importWarleineFaturamentoFile: vi.fn() }));
 vi.mock("./warleineFileVault", () => ({ decryptWarleineFile: vi.fn() }));
+vi.mock("./warleineUploadChunks", () => ({ downloadWarleineChunkFile: vi.fn() }));
 
 import { getRawPool } from "./db";
 import { claimNextWarleineJob } from "./warleineFaturamentoWorker";

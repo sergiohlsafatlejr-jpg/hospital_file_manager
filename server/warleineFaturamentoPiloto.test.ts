@@ -54,7 +54,7 @@ describe("implantação do faturamento Warleine", () => {
   it("autoriza antes do multer, exige confirmação e enfileira arquivo criptografado", () => {
     const upload = read("server/uploadMultipart.ts");
     const authorizeIndex = upload.indexOf("authorizeWarleineUpload,");
-    const multerIndex = upload.indexOf("uploadWarleineXlsx.single('file')");
+    const multerIndex = upload.search(/uploadWarleineXlsx\.single\(["']file["']\)/);
     expect(authorizeIndex).toBeGreaterThan(0);
     expect(multerIndex).toBeGreaterThan(authorizeIndex);
     expect(upload).toContain("confirmarSubstituicao !== 'true'");

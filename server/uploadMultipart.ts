@@ -38,6 +38,10 @@ import {
 import { encryptWarleineFile } from "./warleineFileVault";
 import { processNextWarleineImportJob } from "./warleineFaturamentoWorker";
 import {
+  createWarleineUploadProductionDependencies,
+  registerWarleineUploadRoutes,
+} from "./warleineUploadChunks";
+import {
   assertInternalProcessingReady,
   dispatchInternalFileProcessing,
 } from "./internalFileDispatch";
@@ -52,6 +56,7 @@ import {
 
 const router = Router();
 registerContratosUploadRoutes(router, createContratosUploadProductionDependencies());
+registerWarleineUploadRoutes(router, createWarleineUploadProductionDependencies());
 
 // Configurar multer para armazenar em memória (buffer)
 // Limite de 100MB para cobrir qualquer arquivo hospitalar
@@ -78,6 +83,7 @@ const uploadTasyCsv = multer({
 
 const warleineUploadDir = "/tmp/portal-safatle-warleine";
 mkdirSync(warleineUploadDir, { recursive: true });
+// Legado pequeno somente: 300 MiB utiliza o protocolo durável de blocos.
 const uploadWarleineXlsx = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, callback) => callback(null, warleineUploadDir),
@@ -87,7 +93,7 @@ const uploadWarleineXlsx = multer({
         `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`
       ),
   }),
-  limits: { fileSize: 300 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 16 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) =>
     callback(null, [".xlsx", ".csv", ".zip"].includes(extname(file.originalname).toLowerCase())),
 });
@@ -126,7 +132,7 @@ type TasyUploadRequest = Request & {
 type WarleineUploadRequest = Request & {
   warleineUploadUser?: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
   warleineEstabelecimentoId?: number;
-  warleineDeadlineAtMs?: number;
+  warleineSignal?: AbortSignal;
 };
 
 type ContratosPdfUploadRequest = Request & {
@@ -144,6 +150,10 @@ async function authorizeWarleineUpload(
       user = await sdk.authenticateRequest(req);
     } catch {
       res.status(401).json({ error: "Não autenticado" });
+      return;
+    }
+    if (user.isCron || !Number.isSafeInteger(user.id) || user.id <= 0) {
+      res.status(403).json({ error: "Acesso negado." });
       return;
     }
     const estabelecimentoId = Number(req.header("x-estabelecimento-id"));
@@ -183,12 +193,17 @@ async function authorizeWarleineUpload(
     }
     req.warleineUploadUser = user;
     req.warleineEstabelecimentoId = estabelecimentoId;
-    req.warleineDeadlineAtMs = Date.now() + 13 * 60 * 1000;
+    // Fail closed before receiving legacy bytes as well; no vault in /tmp.
+    const dependencies = createWarleineUploadProductionDependencies();
+    dependencies.cloud.ready();
+    if (process.env.NODE_ENV === "production" && (process.env.WARLEINE_FILE_ENCRYPTION_KEY?.length ?? 0) < 32) {
+      throw new Error("Warleine indisponível.");
+    }
+    encryptWarleineFile(Buffer.from("warleine-legacy-ready-v1"));
     next();
-  } catch (error) {
-    console.error("[Warleine XLSX] Erro ao autorizar upload:", error);
+  } catch {
     res
-      .status(500)
+      .status(503)
       .json({ error: "Não foi possível autorizar o upload Warleine." });
   }
 }
@@ -860,13 +875,29 @@ router.post(
 
 router.post(
   "/api/warleine/importar-faturamento",
-  (req, res, next) => {
-    req.setTimeout(15 * 60 * 1000);
-    res.setTimeout(15 * 60 * 1000);
+  (req: WarleineUploadRequest, res, next) => {
+    const controller = new AbortController();
+    req.warleineSignal = controller.signal;
+    const timer = setTimeout(() => controller.abort(), 150_000);
+    timer.unref();
+    const abort = () => { if (!res.writableEnded) controller.abort(); };
+    req.on("aborted", abort);
+    res.on("close", () => { abort(); clearTimeout(timer); });
+    res.on("finish", () => clearTimeout(timer));
+    req.setTimeout(150_000, abort);
+    res.setTimeout(150_000, abort);
     next();
   },
   authorizeWarleineUpload,
-  uploadWarleineXlsx.single('file'),
+  (req, res, next) => {
+    uploadWarleineXlsx.single("file")(req, res, error => {
+      if (error) {
+        res.status(400).json({ error: "Upload legado limitado a 16 MiB. Utilize o envio em blocos para arquivos maiores." });
+        return;
+      }
+      next();
+    });
+  },
   async (req: WarleineUploadRequest, res: Response) => {
     let tempPath = req.file?.path;
     try {
@@ -901,23 +932,14 @@ router.post(
       }
 
       const processingPath = tempPath;
+      req.warleineSignal?.throwIfAborted();
       const fileHash = await hashWarleineFile(processingPath);
-      let storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
+      const storageKey = `warleine-faturamento/${estabelecimentoId}/${nanoid(32)}.bin`;
       const encryptedFile = encryptWarleineFile(
         await fs.readFile(processingPath)
       );
-      try {
-        await storagePut(storageKey, encryptedFile, "application/octet-stream");
-      } catch (storageErr) {
-        if (process.env.NODE_ENV === "production" && process.env.BUILT_IN_FORGE_API_URL) {
-          throw storageErr;
-        }
-        const localDir = path.join(os.tmpdir(), "portal-safatle-warleine-vault", String(estabelecimentoId));
-        await fs.mkdir(localDir, { recursive: true });
-        const localVaultPath = path.join(localDir, `${fileHash}.bin`);
-        await fs.writeFile(localVaultPath, encryptedFile);
-        storageKey = `local:${localVaultPath}`;
-      }
+      await storagePut(storageKey, encryptedFile, "application/octet-stream", req.warleineSignal);
+      req.warleineSignal?.throwIfAborted();
       const job = await reserveWarleineImportJob({
         estabelecimentoId,
         userId: user.id,
@@ -929,7 +951,7 @@ router.post(
       await fs.unlink(processingPath).catch(() => undefined);
       tempPath = undefined;
       if (job.status !== "publicado") {
-        void processNextWarleineImportJob().catch(() => undefined);
+        void processNextWarleineImportJob({ loteId: job.loteId, estabelecimentoId }).catch(() => undefined);
       }
       return res.status(job.status === "publicado" ? 200 : 202).json({
         success: true,
@@ -942,15 +964,11 @@ router.post(
             ? "Este arquivo já havia sido publicado; o lote existente foi reutilizado."
             : "Arquivo recebido com segurança e enfileirado para validação e publicação.",
       });
-    } catch (error: any) {
+    } catch {
       if (tempPath) await fs.unlink(tempPath).catch(() => undefined);
-      console.error(
-        "[Warleine XLSX] Erro ao receber arquivo:",
-        error?.message || error
-      );
       return res
         .status(500)
-        .json({ error: error?.message || "Erro interno no upload Warleine." });
+        .json({ error: "Não foi possível concluir o upload Warleine com segurança." });
     }
     }
 );
