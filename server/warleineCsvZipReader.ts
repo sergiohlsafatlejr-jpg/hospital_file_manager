@@ -160,18 +160,34 @@ class ZipLzmaDecompressor extends Transform {
   private rep3 = 0;
   private readonly hasEos: boolean;
   private readonly expectedSize: number;
+  private pendingMatch = 0;
+  private pausedOutput = false;
+  private finalInput = false;
+  private pendingCallback?: (error?: Error | null) => void;
+  private scheduled?: ReturnType<typeof setImmediate>;
+  private readonly onAbort = () => {
+    this.destroy(this.budget.controller.signal.reason as Error);
+  };
 
   constructor(
     private readonly entry: Entry,
     private readonly budget: ReadBudget
   ) {
-    super();
+    super({
+      readableHighWaterMark: 16 * 1024,
+      writableHighWaterMark: 16 * 1024,
+    });
     this.hasEos = Boolean(entry.generalPurposeBitFlag & 2);
     this.expectedSize = entry.uncompressedSize;
+    budget.controller.signal.addEventListener("abort", this.onAbort, {
+      once: true,
+    });
+    if (budget.controller.signal.aborted) this.onAbort();
   }
 
   private readByte(): number {
-    if (this.inPos >= this.buf.length) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+    if (this.inPos >= this.buf.length)
+      throw invalid("ZIP_INTEGRIDADE_INVALIDA");
     return this.buf[this.inPos++];
   }
 
@@ -230,35 +246,49 @@ class ZipLzmaDecompressor extends Transform {
   }
 
   private decodeLen(base: number, posState: number): number {
-    if (this.decodeBit(base) === 0) return this.decodeTree(base + 2 + (posState << 3), 3);
-    if (this.decodeBit(base + 1) === 0) return 8 + this.decodeTree(base + 130 + (posState << 3), 3);
+    if (this.decodeBit(base) === 0)
+      return this.decodeTree(base + 2 + (posState << 3), 3);
+    if (this.decodeBit(base + 1) === 0)
+      return 8 + this.decodeTree(base + 130 + (posState << 3), 3);
     return 16 + this.decodeTree(base + 258, 8);
   }
 
   private flushOut(): void {
     if (this.outPos > this.flushStart) {
       this.budget.check();
-      this.push(Buffer.from(this.outWindow.subarray(this.flushStart, this.outPos)));
+      const output = Buffer.from(
+        this.outWindow.subarray(this.flushStart, this.outPos)
+      );
+      // Commit the window cursor before push: consumer code can destroy/read here.
       this.flushStart = this.outPos;
+      const ready = this.push(output);
+      if (!this.destroyed) this.pausedOutput = !ready;
     }
   }
 
   private putByte(b: number): void {
+    if (
+      this.totalOut >= this.expectedSize ||
+      this.totalOut >= this.budget.limits.maxExpandedBytes
+    )
+      throw invalid("BYTES_EXPANDIDOS_EXCEDIDOS");
     this.outWindow[this.outPos++] = b;
     this.totalOut++;
-    if (this.outPos - this.flushStart >= 65536) this.flushOut();
     if (this.outPos === this.dictCap) {
       this.flushOut();
       this.outPos = 0;
       this.flushStart = 0;
+    } else if (this.outPos - this.flushStart >= 16 * 1024) {
+      this.flushOut();
     }
   }
 
-  private processAvailable(finalFlush: boolean): void {
+  /** true = current input exhausted; false = yield or wait for readable demand. */
+  private processAvailable(finalFlush: boolean): boolean {
     if (!this.headerParsed) {
       if (this.buf.length - this.inPos < 14) {
         if (finalFlush) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
-        return;
+        return true;
       }
       const propSize = this.buf.readUInt16LE(this.inPos + 2);
       if (propSize !== 5) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
@@ -277,56 +307,111 @@ class ZipLzmaDecompressor extends Transform {
         this.budget.limits.maxExpandedBytes,
         64 * 1024 * 1024
       );
-      if (this.buf[this.inPos + 9] !== 0) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+      if (this.buf[this.inPos + 9] !== 0)
+        throw invalid("ZIP_INTEGRIDADE_INVALIDA");
       this.code = this.buf.readUInt32BE(this.inPos + 10);
       this.range = 0xffffffff;
       this.inPos += 14;
-      this.probs = new Uint16Array(1846 + (768 << (this.lc + this.lp))).fill(1024);
+      this.probs = new Uint16Array(1846 + (768 << (this.lc + this.lp))).fill(
+        1024
+      );
       this.outWindow = new Uint8Array(this.dictCap);
       this.headerParsed = true;
     }
 
     const minLookahead = finalFlush ? 0 : 64;
-    while (!this.finishedStream && this.buf.length - this.inPos >= minLookahead) {
-      if (!this.hasEos && this.totalOut >= this.expectedSize) {
+    const sliceEnd = Date.now() + 4;
+    const sliceStart = this.totalOut;
+    let steps = 0;
+    while (!this.finishedStream) {
+      if (this.destroyed || this.pausedOutput) return false;
+      // Bounded both by output bytes and work, even for malformed input/EOS.
+      // No probability/range-code state is suspended halfway through a symbol.
+      if (
+        this.totalOut - sliceStart >= 8192 ||
+        ++steps > 1024 ||
+        Date.now() >= sliceEnd
+      )
+        return false;
+      this.budget.check();
+      if (this.pendingMatch) {
+        const count = Math.min(
+          this.pendingMatch,
+          8192 - (this.totalOut - sliceStart)
+        );
+        for (let i = 0; i < count; i++) {
+          this.pendingMatch--;
+          this.putByte(
+            this.outWindow[
+              (this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap
+            ]
+          );
+          if (this.destroyed || this.pausedOutput) return false;
+        }
+        continue;
+      }
+      if (!this.hasEos && this.totalOut === this.expectedSize) {
         this.finishedStream = true;
         break;
       }
-      if (finalFlush && this.inPos >= this.buf.length && this.totalOut >= this.expectedSize) {
-        this.finishedStream = true;
-        break;
-      }
+      if (this.buf.length - this.inPos < minLookahead) break;
+      // With bit 1 set, only the decoded 0xffffffff distance terminates LZMA.
+      // readByte must reject exhausted input, even at the advertised output size.
       const posState = this.totalOut & this.posStateMask;
       if (this.decodeBit(0 + (this.state << 4) + posState) === 0) {
-        const prevByte = this.totalOut === 0 ? 0 : this.outWindow[(this.outPos === 0 ? this.dictCap : this.outPos) - 1];
-        const litState = ((this.totalOut & this.lpMask) << this.lc) + (prevByte >>> (8 - this.lc));
+        const prevByte =
+          this.totalOut === 0
+            ? 0
+            : this.outWindow[
+                (this.outPos === 0 ? this.dictCap : this.outPos) - 1
+              ];
+        const litState =
+          ((this.totalOut & this.lpMask) << this.lc) +
+          (prevByte >>> (8 - this.lc));
         const litBase = 1846 + 768 * litState;
         let symbol = 1;
         if (this.state >= 7) {
-          let matchByte = this.outWindow[(this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap];
+          let matchByte =
+            this.outWindow[
+              (this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap
+            ];
           do {
             const matchBit = (matchByte >> 7) & 1;
             matchByte <<= 1;
-            const bit = this.decodeBit(litBase + ((1 + matchBit) << 8) + symbol);
+            const bit = this.decodeBit(
+              litBase + ((1 + matchBit) << 8) + symbol
+            );
             symbol = (symbol << 1) | bit;
             if (matchBit !== bit) {
-              while (symbol < 0x100) symbol = (symbol << 1) | this.decodeBit(litBase + symbol);
+              while (symbol < 0x100)
+                symbol = (symbol << 1) | this.decodeBit(litBase + symbol);
               break;
             }
           } while (symbol < 0x100);
         } else {
-          while (symbol < 0x100) symbol = (symbol << 1) | this.decodeBit(litBase + symbol);
+          while (symbol < 0x100)
+            symbol = (symbol << 1) | this.decodeBit(litBase + symbol);
         }
+        this.state =
+          this.state < 4
+            ? 0
+            : this.state < 10
+              ? this.state - 3
+              : this.state - 6;
         this.putByte(symbol & 0xff);
-        this.state = this.state < 4 ? 0 : this.state < 10 ? this.state - 3 : this.state - 6;
       } else {
         let len: number;
         if (this.decodeBit(192 + this.state) === 1) {
           if (this.decodeBit(204 + this.state) === 0) {
             if (this.decodeBit(240 + (this.state << 4) + posState) === 0) {
               this.state = this.state < 7 ? 9 : 11;
-              if (this.rep0 >= this.totalOut) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
-              this.putByte(this.outWindow[(this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap]);
+              if (this.rep0 >= this.totalOut || this.rep0 >= this.dictCap)
+                throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+              this.putByte(
+                this.outWindow[
+                  (this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap
+                ]
+              );
               continue;
             }
           } else {
@@ -357,9 +442,15 @@ class ZipLzmaDecompressor extends Transform {
             const numDirectBits = (posSlot >> 1) - 1;
             this.rep0 = (2 | (posSlot & 1)) << numDirectBits;
             if (posSlot < 14) {
-              this.rep0 += this.decodeReverseTree(688 + this.rep0 - posSlot - 1, numDirectBits);
+              this.rep0 += this.decodeReverseTree(
+                688 + this.rep0 - posSlot - 1,
+                numDirectBits
+              );
             } else {
-              this.rep0 = (this.rep0 + (this.decodeDirectBits(numDirectBits - 4) << 4)) >>> 0;
+              this.rep0 =
+                (this.rep0 +
+                  (this.decodeDirectBits(numDirectBits - 4) << 4)) >>>
+                0;
               this.rep0 = (this.rep0 + this.decodeReverseTree(802, 4)) >>> 0;
               if (this.rep0 === 0xffffffff) {
                 this.finishedStream = true;
@@ -371,43 +462,120 @@ class ZipLzmaDecompressor extends Transform {
           }
         }
         len += 2;
-        if (this.rep0 >= this.totalOut || this.rep0 >= this.dictCap) throw invalid("ZIP_INTEGRIDADE_INVALIDA");
-        for (let i = 0; i < len; i++) {
-          this.putByte(this.outWindow[(this.outPos - this.rep0 - 1 + this.dictCap) % this.dictCap]);
-        }
+        if (this.rep0 >= this.totalOut || this.rep0 >= this.dictCap)
+          throw invalid("ZIP_INTEGRIDADE_INVALIDA");
+        // Preserve an overlapping match across slices, push(false) and dict wrap.
+        this.pendingMatch = len;
       }
     }
 
+    if (this.destroyed || this.pausedOutput) return false;
+    if (this.finishedStream && this.inPos !== this.buf.length)
+      throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
     if (this.inPos >= 65536) {
       this.buf = Buffer.from(this.buf.subarray(this.inPos));
       this.inPos = 0;
     }
+    return true;
   }
 
-  _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+  private schedule(): void {
+    if (
+      this.destroyed ||
+      this.pausedOutput ||
+      this.scheduled ||
+      !this.pendingCallback
+    )
+      return;
+    this.scheduled = setImmediate(() => {
+      this.scheduled = undefined;
+      if (this.destroyed || this.pausedOutput || !this.pendingCallback) return;
+      try {
+        this.budget.check();
+        if (!this.processAvailable(this.finalInput)) {
+          this.schedule();
+          return;
+        }
+        if (this.finalInput) {
+          if (
+            !this.finishedStream ||
+            this.totalOut !== this.expectedSize ||
+            this.inPos !== this.buf.length ||
+            this.bytesWritten !== this.entry.compressedSize
+          )
+            throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
+          this.flushOut();
+          if (this.destroyed || this.pausedOutput) return;
+        }
+      } catch (error) {
+        this.destroy(error as Error);
+        return;
+      }
+      // Detach first: the callback may synchronously start _transform/_flush.
+      const callback = this.pendingCallback;
+      this.pendingCallback = undefined;
+      callback?.();
+    });
+  }
+
+  _read(size: number): void {
+    // Preserve Transform's internal callback bookkeeping, without decoding here.
+    super._read(size);
+    this.pausedOutput = false;
+    this.schedule();
+  }
+
+  _transform(
+    chunk: Buffer,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null) => void
+  ): void {
     try {
       this.budget.check();
       this.bytesWritten += chunk.length;
-      if (this.bytesWritten > this.entry.compressedSize) throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
-      this.buf = this.buf.length === this.inPos ? chunk : Buffer.concat([this.buf.subarray(this.inPos), chunk]);
+      if (this.bytesWritten > this.entry.compressedSize)
+        throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
+      this.buf =
+        this.buf.length === this.inPos
+          ? chunk
+          : Buffer.concat([this.buf.subarray(this.inPos), chunk]);
       this.inPos = 0;
-      this.processAvailable(false);
-      callback();
+      this.pendingCallback = callback;
+      this.schedule();
     } catch (err) {
       callback(err as Error);
     }
   }
 
   _flush(callback: (error?: Error | null) => void): void {
-    try {
-      this.budget.check();
-      this.processAvailable(true);
-      this.flushOut();
-      if (!this.finishedStream || this.inPos !== this.buf.length) throw invalid("ZIP_DADOS_COMPRIMIDOS_AMBIGUOS");
-      callback();
-    } catch (err) {
-      callback(err as Error);
+    this.finalInput = true;
+    this.pendingCallback = callback;
+    this.schedule();
+  }
+
+  _destroy(
+    error: Error | null,
+    callback: (error?: Error | null) => void
+  ): void {
+    if (this.scheduled) clearImmediate(this.scheduled);
+    this.scheduled = undefined;
+    this.budget.controller.signal.removeEventListener("abort", this.onAbort);
+    const pending = this.pendingCallback;
+    this.pendingCallback = undefined;
+    this.buf = Buffer.alloc(0);
+    this.probs = new Uint16Array(0);
+    this.outWindow = new Uint8Array(0);
+    this.inPos = this.outPos = this.flushStart = this.pendingMatch = 0;
+    this.pausedOutput = false;
+    // destroy() marks the readable destroyed before invoking this hook: read()
+    // cannot start a slice. Detach consumers first to discard, not deliver bytes.
+    this.unpipe();
+    this.removeAllListeners("data");
+    while (this.read() !== null) {
+      /* Release unread output on return/abort. */
     }
+    pending?.(error ?? invalid("LEITURA_ENCERRADA"));
+    callback(error);
   }
 }
 
