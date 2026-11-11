@@ -367,6 +367,126 @@ export const BI_KPI_CATALOG: Array<{
   { id: "qtd_contas", label: "Contas / Guias", descricao: "Volume de contas hospitalares no período", formato: "inteiro" },
 ];
 
+interface RgbTuple {
+  r: number;
+  g: number;
+  b: number;
+}
+
+function clampByte(n: number): number {
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+function parseHexToRgb(hex: string | null | undefined): RgbTuple | null {
+  if (!hex) return null;
+  const clean = hex.trim().replace(/^#/, "");
+  if (/^[0-9a-fA-F]{3}$/.test(clean)) {
+    return {
+      r: parseInt(clean[0] + clean[0], 16),
+      g: parseInt(clean[1] + clean[1], 16),
+      b: parseInt(clean[2] + clean[2], 16),
+    };
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(clean)) {
+    return {
+      r: parseInt(clean.slice(0, 2), 16),
+      g: parseInt(clean.slice(2, 4), 16),
+      b: parseInt(clean.slice(4, 6), 16),
+    };
+  }
+  return null;
+}
+
+function rgbToHexStr(rgb: RgbTuple): string {
+  const toHex = (v: number) => clampByte(v).toString(16).padStart(2, "0");
+  return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
+}
+
+function mixHexColors(hexA: string, hexB: string, weightB: number): string {
+  const a = parseHexToRgb(hexA);
+  const b = parseHexToRgb(hexB);
+  if (!a) return hexB;
+  if (!b) return hexA;
+  const w = Math.max(0, Math.min(1, weightB));
+  return rgbToHexStr({
+    r: a.r * (1 - w) + b.r * w,
+    g: a.g * (1 - w) + b.g * w,
+    b: a.b * (1 - w) + b.b * w,
+  });
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const rgb = parseHexToRgb(hex);
+  if (!rgb) return hex;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${Number(alpha.toFixed(2))})`;
+}
+
+function hexRelativeLuminance(hex: string): number {
+  const rgb = parseHexToRgb(hex);
+  if (!rgb) return 0.2;
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(rgb.r) + 0.7152 * lin(rgb.g) + 0.0722 * lin(rgb.b);
+}
+
+function adjustHexLightness(hex: string, targetLightness: number, satMultiplier = 1): string {
+  const rgb = parseHexToRgb(hex);
+  if (!rgb) return hex;
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      default:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  const nl = Math.max(0, Math.min(1, targetLightness));
+  const ns = Math.max(0, Math.min(1, s * satMultiplier));
+
+  if (ns === 0) {
+    const gray = clampByte(nl * 255);
+    return rgbToHexStr({ r: gray, g: gray, b: gray });
+  }
+
+  const hue2rgb = (p: number, q: number, t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+
+  const q = nl < 0.5 ? nl * (1 + ns) : nl + ns - nl * ns;
+  const p = 2 * nl - q;
+  return rgbToHexStr({
+    r: hue2rgb(p, q, h + 1 / 3) * 255,
+    g: hue2rgb(p, q, h) * 255,
+    b: hue2rgb(p, q, h - 1 / 3) * 255,
+  });
+}
+
 export function resolveBiThemePalette(config: BiClientConfig): BiThemePalette {
   const baseKey = config.temaPreset === "custom" ? "ela_petroleo" : config.temaPreset;
   const base = BI_THEME_PRESETS[baseKey] || BI_THEME_PRESETS.ela_petroleo;
@@ -381,22 +501,109 @@ export function resolveBiThemePalette(config: BiClientConfig): BiThemePalette {
     return base;
   }
 
+  const fundoValido = parseHexToRgb(corFundo) ? (corFundo as string) : null;
+  const destaqueValido = parseHexToRgb(corDestaque) ? (corDestaque as string) : null;
+  const isLightCustom = fundoValido
+    ? hexRelativeLuminance(fundoValido) > 0.42
+    : base.isLightCanvas;
+
+  // Layout Claro Personalizado (ex.: gerado a partir da logo em modo claro)
+  if (isLightCustom) {
+    const brandAnchor = corBarra || destaqueValido || "#0f213d";
+    const darkBrand = adjustHexLightness(brandAnchor, 0.19, 1.05);
+    const accent = destaqueValido || base.accentColor;
+    const accentLum = hexRelativeLuminance(accent);
+    const canvasTop = fundoValido || "#eef3f8";
+    const canvasBottom = mixHexColors(canvasTop, brandAnchor, 0.08);
+    const kpiBg = corCard || "#ffffff";
+
+    return {
+      ...base,
+      id: config.temaPreset,
+      isLightCanvas: true,
+      headerBg: `linear-gradient(90deg, #ffffff 0%, #ffffff 45%, ${mixHexColors("#ffffff", brandAnchor, 0.16)} 100%)`,
+      headerText: darkBrand,
+      headerSubtext: adjustHexLightness(brandAnchor, 0.36, 0.85),
+      slicerFrameBg: "#ffffff",
+      slicerFrameBorder: mixHexColors("#cbd5e1", brandAnchor, 0.28),
+      slicerLabelBg: darkBrand,
+      slicerLabelText: "#ffffff",
+      canvasBg: `linear-gradient(180deg, ${canvasTop} 0%, ${canvasBottom} 100%)`,
+      panelBg: corPainel || "#ffffff",
+      panelBorder: mixHexColors("#cbd5e1", brandAnchor, 0.24),
+      panelTitleColor: accentLum > 0.5 ? adjustHexLightness(accent, 0.36, 1.1) : accent,
+      kpiCardBg: kpiBg,
+      kpiValueColor: darkBrand,
+      kpiLabelColor: adjustHexLightness(brandAnchor, 0.34, 0.8),
+      accentColor: accent,
+      accentContrast: accentLum > 0.46 ? "#0f172a" : "#ffffff",
+      chartBarColor: corBarra || accent,
+      chartLineFaturado: darkBrand,
+      chartLineRecebido: "#059669",
+      tableHeaderBg: darkBrand,
+      tableHeaderText: "#ffffff",
+      tableTotalBg: mixHexColors("#ffffff", brandAnchor, 0.14),
+      tableTotalText: darkBrand,
+      dataBarFaturado: mixHexColors("#ffffff", brandAnchor, 0.34),
+      footerBg: darkBrand,
+      footerText: "#f1f5f9",
+    };
+  }
+
+  // Layout Executivo Escuro Personalizado (Power BI Dark Canvas nas cores da marca)
+  const accent = destaqueValido || base.accentColor;
+  const accentLum = hexRelativeLuminance(accent);
+  const kpiBg = corCard || (fundoValido ? mixHexColors("#ffffff", fundoValido, 0.07) : base.kpiCardBg);
+  const kpiIsLight = hexRelativeLuminance(kpiBg) > 0.42;
+
+  if (!fundoValido) {
+    return {
+      ...base,
+      id: config.temaPreset,
+      panelBg: corPainel || base.panelBg,
+      panelTitleColor: corDestaque || base.panelTitleColor,
+      accentColor: corDestaque || base.accentColor,
+      accentContrast: destaqueValido ? (accentLum > 0.46 ? "#0f172a" : "#ffffff") : base.accentContrast,
+      kpiCardBg: kpiBg,
+      chartBarColor: corBarra || corDestaque || base.chartBarColor,
+    };
+  }
+
+  const deepMid = adjustHexLightness(fundoValido, 0.13, 1.02);
+  const deepDark = adjustHexLightness(fundoValido, 0.08, 1.05);
+  const borderGlow = adjustHexLightness(fundoValido, 0.62, 1.2);
+  const softHeaderTint = mixHexColors("#ffffff", fundoValido, 0.08);
+  const midHeaderTint = mixHexColors("#ffffff", fundoValido, 0.23);
+
   return {
     ...base,
     id: config.temaPreset,
-    headerBg: corFundo
-      ? `linear-gradient(90deg, #ffffff 0%, #f1f5f9 36%, #dbe7ef 58%, ${corFundo} 100%)`
-      : base.headerBg,
-    slicerFrameBg: corFundo || base.slicerFrameBg,
-    canvasBg: corFundo
-      ? `linear-gradient(180deg, ${corFundo} 0%, ${corFundo}ee 65%, #05131d 100%)`
-      : base.canvasBg,
-    panelBg: corPainel || (corFundo ? `${corFundo}d9` : base.panelBg),
+    isLightCanvas: false,
+    headerBg: `linear-gradient(90deg, #ffffff 0%, ${softHeaderTint} 35%, ${midHeaderTint} 58%, ${fundoValido} 100%)`,
+    headerText: adjustHexLightness(fundoValido, 0.18, 1.05),
+    headerSubtext: adjustHexLightness(fundoValido, 0.34, 0.85),
+    slicerFrameBg: hexToRgba(adjustHexLightness(fundoValido, 0.14, 1.05), 0.92),
+    slicerFrameBorder: hexToRgba(borderGlow, 0.42),
+    slicerLabelBg: "#f8fafc",
+    slicerLabelText: adjustHexLightness(fundoValido, 0.2, 1.05),
+    canvasBg: `linear-gradient(180deg, ${fundoValido} 0%, ${deepMid} 58%, ${deepDark} 100%)`,
+    panelBg: corPainel || hexToRgba(adjustHexLightness(fundoValido, 0.16, 1.02), 0.84),
+    panelBorder: hexToRgba(borderGlow, 0.32),
     panelTitleColor: corDestaque || base.panelTitleColor,
+    kpiCardBg: kpiBg,
+    kpiValueColor: kpiIsLight ? (corFundo || base.kpiValueColor) : "#ffffff",
+    kpiLabelColor: kpiIsLight ? adjustHexLightness(fundoValido, 0.28, 0.9) : "#cbd5e1",
     accentColor: corDestaque || base.accentColor,
-    kpiCardBg: corCard || base.kpiCardBg,
-    kpiValueColor: corFundo || base.kpiValueColor,
+    accentContrast: destaqueValido ? (accentLum > 0.46 ? "#0f172a" : "#ffffff") : base.accentContrast,
     chartBarColor: corBarra || corDestaque || base.chartBarColor,
+    chartLineFaturado: adjustHexLightness(fundoValido, 0.82, 1.15),
+    tableHeaderBg: adjustHexLightness(fundoValido, 0.1, 1.05),
+    tableHeaderText: "#f8fafc",
+    tableTotalBg: mixHexColors("#ffffff", fundoValido, 0.18),
+    tableTotalText: adjustHexLightness(fundoValido, 0.15, 1.05),
+    dataBarFaturado: mixHexColors("#ffffff", adjustHexLightness(fundoValido, 0.46, 1.15), 0.46),
+    footerBg: hexToRgba(deepDark, 0.96),
+    footerText: mixHexColors("#ffffff", fundoValido, 0.22),
   };
 }
 

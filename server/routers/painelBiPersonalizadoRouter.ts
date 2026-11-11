@@ -16,6 +16,7 @@ import {
 } from "../painelBiPersonalizadoService";
 
 const relatorioBiProcedure = reportProcedure("relFaturadoRecebido");
+const relatorioGlosasBiProcedure = reportProcedure("relatoriosGlosasBi");
 
 async function exigirPermissaoPersonalizar(user: { id: number; role: string }, estabelecimentoId: number) {
   if (user.role === "admin") return;
@@ -55,6 +56,16 @@ export const painelBiPersonalizadoRouter = router({
     }),
 
   obterConfiguracao: relatorioBiProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      try {
+        return await obterConfiguracaoBiCliente(input.estabelecimentoId);
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível carregar a personalização deste estabelecimento." });
+      }
+    }),
+
+  obterConfiguracaoGlosas: relatorioGlosasBiProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive() }))
     .query(async ({ input }) => {
       try {

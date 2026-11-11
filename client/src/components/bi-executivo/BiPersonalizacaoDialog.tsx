@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -21,16 +21,20 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowDown,
+  ArrowLeftRight,
   ArrowUp,
   Check,
   ImagePlus,
   LayoutTemplate,
   Loader2,
+  Moon,
   Palette,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
+  Sun,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -39,12 +43,19 @@ import {
   BI_KPI_CATALOG,
   BI_THEME_PRESETS,
   DEFAULT_BI_CLIENT_CONFIG,
+  resolveBiThemePalette,
   type BiAbaId,
   type BiClientConfig,
   type BiFiltroId,
   type BiKpiId,
   type BiTemaPreset,
 } from "@shared/biPersonalizadoConfig";
+import {
+  extrairCoresDeLogoDataUrl,
+  gerarCamposTemaPorCoresDaLogo,
+  type EstiloLayoutLogoBi,
+  type PaletaExtraidaLogo,
+} from "@/lib/biLogoColorExtractor";
 
 interface BiPersonalizacaoDialogProps {
   open: boolean;
@@ -107,16 +118,33 @@ export function BiPersonalizacaoDialog({
   onSaved,
 }: BiPersonalizacaoDialogProps) {
   const [draft, setDraft] = useState<BiClientConfig>(configAtual);
+  const [autoCoresPelaLogo, setAutoCoresPelaLogo] = useState(true);
+  const [estiloLayoutLogo, setEstiloLayoutLogo] =
+    useState<EstiloLayoutLogoBi>("executivo_escuro");
+  const [paletaLogo, setPaletaLogo] = useState<PaletaExtraidaLogo | null>(null);
+  const [extraindoCoresLogo, setExtraindoCoresLogo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const previewPalette = useMemo(() => resolveBiThemePalette(draft), [draft]);
 
   useEffect(() => {
     if (open) {
       setDraft(configAtual);
+      if (configAtual.logoUrl) {
+        extrairCoresDeLogoDataUrl(configAtual.logoUrl)
+          .then((res) => setPaletaLogo(res))
+          .catch(() => setPaletaLogo(null));
+      } else {
+        setPaletaLogo(null);
+      }
     }
   }, [open, configAtual]);
 
+  const utils = trpc.useUtils();
+
   const salvarMut = trpc.painelBiPersonalizado.salvarConfiguracao.useMutation({
     onSuccess: () => {
+      void utils.painelBiPersonalizado.invalidate();
       toast.success(`Personalização BI salva para ${estabelecimentoNome}!`);
       onSaved();
       onOpenChange(false);
@@ -128,7 +156,9 @@ export function BiPersonalizacaoDialog({
 
   const resetarMut = trpc.painelBiPersonalizado.resetarConfiguracao.useMutation({
     onSuccess: (res) => {
+      void utils.painelBiPersonalizado.invalidate();
       setDraft(res.config);
+      setPaletaLogo(null);
       toast.success("Padrão executivo restaurado para este estabelecimento.");
       onSaved();
       onOpenChange(false);
@@ -138,6 +168,21 @@ export function BiPersonalizacaoDialog({
     },
   });
 
+  const aplicarCoresExtraidasNoDraft = (
+    corPrimaria: string,
+    corSecundaria: string,
+    estilo: EstiloLayoutLogoBi,
+    logoDataUrl?: string,
+  ) => {
+    const camposTema = gerarCamposTemaPorCoresDaLogo(corPrimaria, corSecundaria, estilo);
+    setEstiloLayoutLogo(estilo);
+    setDraft((prev) => ({
+      ...prev,
+      ...(logoDataUrl !== undefined ? { logoUrl: logoDataUrl } : {}),
+      ...camposTema,
+    }));
+  };
+
   const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -146,14 +191,75 @@ export function BiPersonalizacaoDialog({
       return;
     }
     try {
+      setExtraindoCoresLogo(true);
       const dataUrl = await redimensionarLogoParaDataUrl(file);
-      setDraft((prev) => ({ ...prev, logoUrl: dataUrl }));
-      toast.success("Logo carregada! Clique em Salvar para aplicar ao cliente.");
+      let extraida: PaletaExtraidaLogo | null = null;
+      try {
+        extraida = await extrairCoresDeLogoDataUrl(dataUrl);
+        setPaletaLogo(extraida);
+      } catch {
+        setPaletaLogo(null);
+      }
+
+      if (extraida && autoCoresPelaLogo) {
+        aplicarCoresExtraidasNoDraft(
+          extraida.corPrimaria,
+          extraida.corSecundaria,
+          estiloLayoutLogo,
+          dataUrl,
+        );
+        toast.success(
+          "Logo analisada! As cores da marca foram extraídas e aplicadas ao layout do cliente.",
+        );
+      } else {
+        setDraft((prev) => ({ ...prev, logoUrl: dataUrl }));
+        toast.success("Logo carregada! Clique em Salvar para aplicar ao cliente.");
+      }
     } catch (err: any) {
       toast.error(err?.message || "Erro ao processar a logo.");
     } finally {
+      setExtraindoCoresLogo(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const handleReaplicarCoresDaLogo = async (novoEstilo?: EstiloLayoutLogoBi) => {
+    if (!draft.logoUrl) return;
+    const estiloAlvo = novoEstilo || estiloLayoutLogo;
+    try {
+      setExtraindoCoresLogo(true);
+      const extraida = paletaLogo || (await extrairCoresDeLogoDataUrl(draft.logoUrl));
+      setPaletaLogo(extraida);
+      aplicarCoresExtraidasNoDraft(
+        extraida.corPrimaria,
+        extraida.corSecundaria,
+        estiloAlvo,
+      );
+      toast.success(
+        estiloAlvo === "executivo_escuro"
+          ? "Layout Power BI Escuro gerado pelas cores da logo!"
+          : "Layout Institucional Claro gerado pelas cores da logo!",
+      );
+    } catch {
+      toast.error("Não foi possível ler automaticamente as cores desta imagem.");
+    } finally {
+      setExtraindoCoresLogo(false);
+    }
+  };
+
+  const handleInverterCoresDaLogo = () => {
+    if (!paletaLogo) return;
+    const invertida: PaletaExtraidaLogo = {
+      ...paletaLogo,
+      corPrimaria: paletaLogo.corSecundaria,
+      corSecundaria: paletaLogo.corPrimaria,
+    };
+    setPaletaLogo(invertida);
+    aplicarCoresExtraidasNoDraft(
+      invertida.corPrimaria,
+      invertida.corSecundaria,
+      estiloLayoutLogo,
+    );
   };
 
   const toggleAba = (aba: BiAbaId) => {
@@ -257,10 +363,20 @@ export function BiPersonalizacaoDialog({
 
           {/* ABA 1: MARCA E CORES */}
           <TabsContent value="marca" className="space-y-5 pt-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                Logomarca do Hospital / Cliente
-              </Label>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Logomarca do Hospital / Cliente + Identidade Automática
+                </Label>
+                <label className="inline-flex items-center gap-2 text-[11px] font-medium text-slate-600 cursor-pointer">
+                  <Switch
+                    checked={autoCoresPelaLogo}
+                    onCheckedChange={setAutoCoresPelaLogo}
+                  />
+                  Gerar layout automaticamente pelas cores da logo
+                </label>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="h-16 w-44 rounded-lg border border-dashed border-slate-300 bg-white flex items-center justify-center p-2 shrink-0">
                   {draft.logoUrl ? (
@@ -288,27 +404,298 @@ export function BiPersonalizacaoDialog({
                       type="button"
                       variant="outline"
                       size="sm"
+                      disabled={extraindoCoresLogo}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <ImagePlus className="h-4 w-4 mr-1.5" />
+                      {extraindoCoresLogo ? (
+                        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                      ) : (
+                        <ImagePlus className="h-4 w-4 mr-1.5" />
+                      )}
                       Enviar imagem da logo
                     </Button>
                     {draft.logoUrl && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-rose-600 hover:text-rose-700"
-                        onClick={() => setDraft((p) => ({ ...p, logoUrl: null }))}
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Remover
-                      </Button>
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={extraindoCoresLogo}
+                          className="border-amber-300 bg-amber-50/80 text-amber-900 hover:bg-amber-100"
+                          onClick={() => handleReaplicarCoresDaLogo()}
+                        >
+                          <Wand2 className="h-3.5 w-3.5 mr-1.5 text-amber-600" />
+                          Aplicar cores da logo
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-rose-600 hover:text-rose-700"
+                          onClick={() => {
+                            setPaletaLogo(null);
+                            setDraft((p) => ({ ...p, logoUrl: null }));
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Remover
+                        </Button>
+                      </>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Recomendado: PNG ou SVG com fundo transparente (ex.: marca do hospital).
+                    Ao enviar PNG, JPG, WebP ou SVG da marca do hospital, o sistema lê as cores da logo e monta o layout executivo sob medida.
                   </p>
+                </div>
+              </div>
+
+              {/* CORES DETECTADAS NA LOGO + MODOS ESCURO / CLARO */}
+              {draft.logoUrl && paletaLogo && (
+                <div className="rounded-lg border border-amber-200/80 bg-white p-3 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Wand2 className="h-3.5 w-3.5 text-amber-600" />
+                      <span className="text-xs font-bold text-slate-800">
+                        Cores identificadas na logo
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        ({paletaLogo.secundariaVindaDaLogo ? "2+ tons da marca" : "harmonia automática"})
+                      </span>
+                    </div>
+
+                    <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleReaplicarCoresDaLogo("executivo_escuro")}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors",
+                          estiloLayoutLogo === "executivo_escuro" && draft.temaPreset === "custom"
+                            ? "bg-slate-900 text-white shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900",
+                        )}
+                      >
+                        <Moon className="h-3 w-3" />
+                        Power BI Escuro
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReaplicarCoresDaLogo("executivo_claro")}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors",
+                          estiloLayoutLogo === "executivo_claro" && draft.temaPreset === "custom"
+                            ? "bg-white text-slate-900 shadow-2xs border border-slate-200"
+                            : "text-slate-600 hover:text-slate-900",
+                        )}
+                      >
+                        <Sun className="h-3 w-3" />
+                        Executivo Claro
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {paletaLogo.coresDetectadas.map((hex) => {
+                        const isPrim = paletaLogo.corPrimaria.toLowerCase() === hex.toLowerCase();
+                        const isSec = paletaLogo.corSecundaria.toLowerCase() === hex.toLowerCase();
+                        return (
+                          <button
+                            key={hex}
+                            type="button"
+                            title={`Clique para usar ${hex} como cor principal da marca`}
+                            onClick={() => {
+                              const novaSec =
+                                paletaLogo.corSecundaria.toLowerCase() === hex.toLowerCase()
+                                  ? paletaLogo.corPrimaria
+                                  : paletaLogo.corSecundaria;
+                              const novaPaleta = {
+                                ...paletaLogo,
+                                corPrimaria: hex,
+                                corSecundaria: novaSec,
+                              };
+                              setPaletaLogo(novaPaleta);
+                              aplicarCoresExtraidasNoDraft(hex, novaSec, estiloLayoutLogo);
+                            }}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold transition-all",
+                              isPrim
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : isSec
+                                  ? "border-amber-500 bg-amber-50 text-amber-900"
+                                  : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400",
+                            )}
+                          >
+                            <span
+                              className="h-3 w-3 rounded-full border border-black/15 shrink-0"
+                              style={{ backgroundColor: hex }}
+                            />
+                            <span>{hex}</span>
+                            {isPrim && <span className="opacity-80">(Principal)</span>}
+                            {isSec && !isPrim && <span className="opacity-80">(Destaque)</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px] text-slate-600 hover:text-slate-900"
+                      onClick={handleInverterCoresDaLogo}
+                    >
+                      <ArrowLeftRight className="h-3 w-3 mr-1" />
+                      Inverter Principal ↔ Destaque
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* MINI PREVIEW AO VIVO DO LAYOUT GERADO PARA O CLIENTE */}
+              <div
+                className="overflow-hidden rounded-xl border border-black/15 shadow-sm"
+                style={{ background: previewPalette.canvasBg }}
+              >
+                <div
+                  className="flex items-center justify-between gap-2 px-3 py-2 border-b border-black/10"
+                  style={{ background: previewPalette.headerBg }}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {draft.logoUrl ? (
+                      <img
+                        src={draft.logoUrl}
+                        alt="Preview logo"
+                        className="h-7 max-w-[100px] object-contain"
+                      />
+                    ) : (
+                      <span
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[10px] font-extrabold"
+                        style={{
+                          backgroundColor: previewPalette.accentColor,
+                          color: previewPalette.accentContrast,
+                        }}
+                      >
+                        BI
+                      </span>
+                    )}
+                    <div className="leading-none truncate">
+                      <p
+                        className="text-[8px] font-bold uppercase tracking-widest truncate"
+                        style={{ color: previewPalette.headerSubtext }}
+                      >
+                        {draft.tituloRelatorio || "INDICADORES DE FATURAMENTO"}
+                      </p>
+                      <div className="mt-1 flex items-center gap-1">
+                        <span
+                          className="rounded px-1 py-0.5 text-[9px] font-extrabold"
+                          style={{
+                            backgroundColor: previewPalette.accentColor,
+                            color: previewPalette.accentContrast,
+                          }}
+                        >
+                          01
+                        </span>
+                        <span
+                          className="text-[11px] font-extrabold truncate"
+                          style={{ color: previewPalette.accentColor }}
+                        >
+                          {draft.nomesAbas.visao_geral || "Visão Geral"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      className="rounded px-1.5 py-0.5 text-[8px] font-bold"
+                      style={{
+                        backgroundColor: previewPalette.slicerLabelBg,
+                        color: previewPalette.slicerLabelText,
+                      }}
+                    >
+                      SETOR
+                    </span>
+                    <span
+                      className="rounded px-1.5 py-0.5 text-[8px] font-bold"
+                      style={{
+                        backgroundColor: previewPalette.slicerLabelBg,
+                        color: previewPalette.slicerLabelText,
+                      }}
+                    >
+                      CONVÊNIO
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 p-2.5">
+                  <div
+                    className="rounded-md p-2 text-center shadow-2xs"
+                    style={{ backgroundColor: previewPalette.kpiCardBg }}
+                  >
+                    <p
+                      className="text-[11px] font-extrabold"
+                      style={{ color: previewPalette.kpiValueColor }}
+                    >
+                      R$ 34,5 Mi
+                    </p>
+                    <p
+                      className="text-[8px] font-semibold"
+                      style={{ color: previewPalette.kpiLabelColor }}
+                    >
+                      Faturado
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-md p-2 border"
+                    style={{
+                      background: previewPalette.panelBg,
+                      borderColor: previewPalette.panelBorder,
+                    }}
+                  >
+                    <p
+                      className="text-[8px] font-extrabold uppercase"
+                      style={{ color: previewPalette.panelTitleColor }}
+                    >
+                      COMPETÊNCIA
+                    </p>
+                    <div className="mt-1.5 space-y-1">
+                      <div
+                        className="h-2 rounded-xs w-4/5"
+                        style={{ backgroundColor: previewPalette.dataBarFaturado }}
+                      />
+                      <div
+                        className="h-2 rounded-xs w-3/5"
+                        style={{ backgroundColor: previewPalette.dataBarRecebido }}
+                      />
+                    </div>
+                  </div>
+                  <div
+                    className="rounded-md p-2 border flex flex-col justify-between"
+                    style={{
+                      background: previewPalette.panelBg,
+                      borderColor: previewPalette.panelBorder,
+                    }}
+                  >
+                    <p
+                      className="text-[8px] font-extrabold uppercase"
+                      style={{ color: previewPalette.panelTitleColor }}
+                    >
+                      EVOLUÇÃO
+                    </p>
+                    <div className="flex items-end gap-1 h-5 pt-1">
+                      <span
+                        className="flex-1 rounded-t-xs h-3"
+                        style={{ backgroundColor: previewPalette.chartBarColor }}
+                      />
+                      <span
+                        className="flex-1 rounded-t-xs h-4"
+                        style={{ backgroundColor: previewPalette.chartBarColor }}
+                      />
+                      <span
+                        className="flex-1 rounded-t-xs h-5"
+                        style={{ backgroundColor: previewPalette.chartBarColor }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

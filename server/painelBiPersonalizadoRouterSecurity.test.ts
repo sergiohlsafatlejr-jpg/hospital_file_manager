@@ -56,6 +56,7 @@ describe("BI Executivo — falhas públicas sanitizadas", () => {
   it("oculta erro do reader da configuração", async () => {
     fake.obter.mockRejectedValue(new Error(marker));
     await assertSanitized(painelBiPersonalizadoRouter.createCaller(ctx).obterConfiguracao(input));
+    await assertSanitized(painelBiPersonalizadoRouter.createCaller(ctx).obterConfiguracaoGlosas(input));
   });
   it("não declara sucesso quando salvar falha", async () => {
     fake.salvar.mockRejectedValue(new Error(marker));
