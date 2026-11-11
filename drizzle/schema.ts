@@ -5186,3 +5186,4 @@ export * from "./schema-xml-importacao-lote";
 
 export * from "./schema-fabrica-faturamento";
 export * from "./schema-rpa-envio-xml";
+export * from "./schema-bi-personalizado";

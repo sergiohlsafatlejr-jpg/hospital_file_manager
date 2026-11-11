@@ -189,6 +189,8 @@ const menuItems: MenuItem[] = [
   { icon: PieChart, label: "Relatórios BI", path: "/faturado-recebido-unificado", modulo: "relatoriosBi", children: [
     // Subpasta: Faturamento
     { icon: Receipt, label: "Faturamento", path: "/faturado-recebido-unificado", modulo: "relatoriosBi", children: [
+      { icon: Sparkles, label: "Painel BI Executivo (XML)", path: "/bi-executivo-xml", modulo: "relFaturadoRecebido" },
+      { icon: Sparkles, label: "Painel BI Executivo (Banco / CSV)", path: "/bi-executivo-banco", modulo: "relFaturadoRecebido" },
       { icon: BarChart3, label: "Faturado x Recebido", path: "/faturado-recebido-unificado", modulo: "relFaturadoRecebido" },
       { icon: Database, label: "Faturado x Recebido — Warleine", path: "/faturado-recebido-warleine", modulo: "relFaturadoRecebido" },
       { icon: FileText, label: "Rel. Faturamento", path: "/relatorio-faturamento", modulo: "relFaturamento" },

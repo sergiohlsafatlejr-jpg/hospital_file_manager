@@ -449,6 +449,13 @@
       "when": 1793720945369,
       "tag": "0145_rpa_fila_envio_xml_portal",
       "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "5",
+      "when": 1794400248375,
+      "tag": "0146_painel_bi_personalizado",
+      "breakpoints": true
     }
   ]
 }

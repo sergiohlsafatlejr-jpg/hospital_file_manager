@@ -103,6 +103,8 @@ const PrevisaoPagamentosImec = lazy(() => import("./pages/PrevisaoPagamentosImec
 const ResumoPacienteOxUti = lazy(() => import("./pages/ResumoPacienteOxUti"));
 const FaturadoRecebidoUnificado = lazy(() => import("./pages/FaturadoRecebidoUnificado"));
 const FaturadoRecebidoWarleine = lazy(() => import("./pages/FaturadoRecebidoWarleine"));
+const PainelBiExecutivoXml = lazy(() => import("./pages/PainelBiExecutivoXml"));
+const PainelBiExecutivoBanco = lazy(() => import("./pages/PainelBiExecutivoBanco"));
 const RelatoriosGlosasWarleine = lazy(() => import("./pages/RelatoriosGlosasWarleine"));
 const RpaManager = lazy(() => import("./pages/RpaManager"));
 const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente"));
@@ -248,6 +250,8 @@ function Router() {
         <Route path={"/resumo-paciente-ox-uti"} component={ResumoPacienteOxUti} />
         <Route path={"/faturado-recebido-unificado"} component={FaturadoRecebidoUnificado} />
         <Route path={"/faturado-recebido-warleine"} component={FaturadoRecebidoWarleine} />
+        <Route path={"/bi-executivo-xml"} component={PainelBiExecutivoXml} />
+        <Route path={"/bi-executivo-banco"} component={PainelBiExecutivoBanco} />
         <Route path={"/contratos-convenios"} component={ContratosConvenios} />
         <Route path={"/auditoria-sistema"} component={LogAuditoriaSistema} />
         <Route path={"/relatorios-glosas-bi"} component={RelatoriosGlosasBi} />
