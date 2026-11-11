@@ -15,6 +15,14 @@ import {
   obterUrlDownloadPdfContrato,
   type ContratoConvenioPonto,
 } from "../contratosConveniosPdfService";
+import {
+  aplicarFundamentacaoContratualGlosas,
+  auditarCobrancaXmlPorContrato,
+  auditarGlosasPorContrato,
+  gerarDossieContratualComIA,
+  obterDossieContratual,
+  sincronizarTabelaValoresDossie,
+} from "../contratosConveniosDossieService";
 
 function dbObrigatorio(db: Awaited<ReturnType<typeof getDb>>) {
   if (!db)
@@ -256,6 +264,123 @@ export const contratosConveniosRouter = router({
         success: true,
         pontosImportantes: novosPontos,
       };
+    }),
+
+  obterDossie: protectedProcedure
+    .input(z.object({ contratoId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const db = dbObrigatorio(await getDb());
+      await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
+      return obterDossieContratual(input.contratoId);
+    }),
+
+  obterDossiePorConvenio: protectedProcedure
+    .input(
+      z.object({
+        estabelecimentoId: z.number().int().positive(),
+        convenioId: z.number().int().positive().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (
+        ctx.user.role !== "admin" &&
+        !(await verificarPermissaoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        ))
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Sem permissão para consultar contratos desta unidade.",
+        });
+      }
+      const db = dbObrigatorio(await getDb());
+      const conds = [
+        eq(contratosConvenios.estabelecimentoId, input.estabelecimentoId),
+      ];
+      if (input.convenioId) {
+        conds.push(eq(contratosConvenios.convenioId, input.convenioId));
+      }
+      const contratos = await db
+        .select()
+        .from(contratosConvenios)
+        .where(and(...conds))
+        .orderBy(desc(contratosConvenios.createdAt))
+        .limit(10);
+      if (contratos.length === 0) return null;
+      const escolhido =
+        contratos.find(
+          c => c.status === "ativo" || c.status === "vencendo" || c.status === "renovado"
+        ) ?? contratos[0];
+      return obterDossieContratual(escolhido.id);
+    }),
+
+  gerarDossieIA: protectedProcedure
+    .input(z.object({ contratoId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = dbObrigatorio(await getDb());
+      await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+      return gerarDossieContratualComIA(input.contratoId);
+    }),
+
+  sincronizarTabelaDossie: protectedProcedure
+    .input(z.object({ contratoId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = dbObrigatorio(await getDb());
+      await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+      return sincronizarTabelaValoresDossie({ contratoId: input.contratoId });
+    }),
+
+  auditarCobrancaXml: protectedProcedure
+    .input(
+      z.object({
+        contratoId: z.number().int().positive(),
+        competencia: z.string().optional(),
+        loteXml: z.string().optional(),
+        limit: z.number().int().min(10).max(500).optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const db = dbObrigatorio(await getDb());
+      await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
+      return auditarCobrancaXmlPorContrato(input);
+    }),
+
+  auditarGlosasContrato: protectedProcedure
+    .input(
+      z.object({
+        contratoId: z.number().int().positive(),
+        competencia: z.string().optional(),
+        limit: z.number().int().min(10).max(400).optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const db = dbObrigatorio(await getDb());
+      await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
+      return auditarGlosasPorContrato(input);
+    }),
+
+  aplicarFundamentacaoGlosas: protectedProcedure
+    .input(
+      z.object({
+        contratoId: z.number().int().positive(),
+        itens: z
+          .array(
+            z.object({
+              id: z.number().int().positive(),
+              origem: z.enum(["demonstrativo", "conciliacao"]),
+              justificativa: z.string().min(5),
+              valorRecurso: z.number().min(0),
+            })
+          )
+          .max(200),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = dbObrigatorio(await getDb());
+      await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+      return aplicarFundamentacaoContratualGlosas(input);
     }),
 
   criar: protectedProcedure

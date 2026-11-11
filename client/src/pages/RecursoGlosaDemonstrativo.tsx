@@ -9,10 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3, FileText, FilePlus2, Download, Loader2 } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3, FileText, FilePlus2, Download, Loader2, BookOpen, Gavel } from "lucide-react";
 import * as XLSX from "xlsx";
 import { resolverGlosaDicionario } from "@shared/glossaryGlosas";
 import { LancamentoGlosaManualDialog } from "@/components/LancamentoGlosaManualDialog";
+import { ContratoDossieModal } from "@/components/ContratoDossieModal";
 import { useLocation } from "wouter";
 import { RecursoGlosaMultiSelect } from "@/components/recurso-glosa/RecursoGlosaMultiSelect";
 import { MAX_RECEBIMENTO_IDS_DEMONSTRATIVO } from "@shared/recursoGlosaDemonstrativoFiltros";
@@ -147,10 +148,16 @@ export default function RecursoGlosaDemonstrativo() {
     { enabled: !!expandedMotivo && agrupamento === 'motivo' && isScopeAtual }
   );
 
+  const dataReferenciaHoje = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [dossieModalAberto, setDossieModalAberto] = useState(false);
+  const [dossieContratoId, setDossieContratoId] = useState<number | null>(null);
+  const [dossieAbaInicial, setDossieAbaInicial] = useState<string>("glosas");
+
   const { data: contextoContratual } = trpc.contratosConvenios.obterContextoGlosa.useQuery(
     {
       estabelecimentoId,
       convenioId: convenioIdNumero,
+      dataReferencia: dataReferenciaHoje,
     },
     { enabled: !!estabelecimentoId && estabelecimentoId > 0 && isScopeAtual }
   );
@@ -565,12 +572,43 @@ export default function RecursoGlosaDemonstrativo() {
               )}
             </div>
           </div>
-          <a
-            href="/contratos-convenios"
-            className="text-xs font-medium text-blue-700 hover:underline shrink-0"
-          >
-            Gerenciar Contratos / PDFs →
-          </a>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {contextoContratual.contratos?.[0]?.id && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs border-indigo-300 text-indigo-800 hover:bg-indigo-50"
+                  onClick={() => {
+                    setDossieContratoId(contextoContratual.contratos[0].id);
+                    setDossieAbaInicial("resumo");
+                    setDossieModalAberto(true);
+                  }}
+                >
+                  <BookOpen className="h-3.5 w-3.5 mr-1" />
+                  Pontos de Atenção do Contrato
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                  onClick={() => {
+                    setDossieContratoId(contextoContratual.contratos[0].id);
+                    setDossieAbaInicial("glosas");
+                    setDossieModalAberto(true);
+                  }}
+                >
+                  <Gavel className="h-3.5 w-3.5 mr-1" />
+                  Defesa Contratual em Lote
+                </Button>
+              </>
+            )}
+            <a
+              href="/contratos-convenios"
+              className="text-xs font-medium text-blue-700 hover:underline shrink-0"
+            >
+              Gerenciar Contratos / PDFs →
+            </a>
+          </div>
         </div>
       )}
 
@@ -909,6 +947,13 @@ export default function RecursoGlosaDemonstrativo() {
           <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => { resetarPorFiltro(); setPage(page + 1); }}>Próxima</Button>
         </div>
       )}
+
+      <ContratoDossieModal
+        open={dossieModalAberto}
+        onOpenChange={setDossieModalAberto}
+        contratoId={dossieContratoId}
+        abaInicial={dossieAbaInicial}
+      />
     </div>
   );
 

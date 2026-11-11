@@ -12,8 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { toast } from "sonner";
 import { formatDateBR } from "@/lib/dateUtils";
-import { Building2, Search, Plus, Pencil, Trash2, FileText, AlertTriangle, Eye, UploadCloud, Mail, Loader2, CheckCircle2, FileSearch, Download, FileWarning, Sparkles } from "lucide-react";
+import { Building2, Search, Plus, Pencil, Trash2, FileText, AlertTriangle, Eye, UploadCloud, Mail, Loader2, CheckCircle2, FileSearch, Download, FileWarning, Sparkles, BookOpen, FileCode2, Gavel } from "lucide-react";
 import { adicionarPdfsAoLote, batchIdContratosPdf, chaveArquivoContrato, exigirIdNovoContrato, uploadContratoPdf, validarLoteContratosPdf, type UploadProgress, type UploadResult } from "@/lib/contratosUploadChunks";
+import { ContratoDossieModal } from "@/components/ContratoDossieModal";
 
 const STATUS_CONFIG = {
   ativo: { label: "Ativo", color: "bg-green-500" },
@@ -47,6 +48,9 @@ export default function ContratosConvenios() {
   const [novoConvenioIdModal, setNovoConvenioIdModal] = useState<string>("");
   const [novoNumeroContratoModal, setNovoNumeroContratoModal] = useState<string>("");
   const [documentoDetalheId, setDocumentoDetalheId] = useState<number | null>(null);
+  const [dossieModalAberto, setDossieModalAberto] = useState(false);
+  const [dossieContratoId, setDossieContratoId] = useState<number | null>(null);
+  const [dossieAbaInicial, setDossieAbaInicial] = useState<string>("resumo");
   const [arquivosPdf, setArquivosPdf] = useState<File[]>([]);
   const [arrastandoPdf, setArrastandoPdf] = useState(false);
   const [importandoPdf, setImportandoPdf] = useState(false);
@@ -200,6 +204,12 @@ export default function ContratosConvenios() {
     setProgressoPdf({});
     setArquivosPdf([]);
     setDocumentosModalAberto(true);
+  };
+
+  const abrirDossie = (contratoId: number, aba = "resumo") => {
+    setDossieContratoId(contratoId);
+    setDossieAbaInicial(aba);
+    setDossieModalAberto(true);
   };
 
   const quantidadeDocumentos = (contratoId: number) => {
@@ -389,15 +399,16 @@ export default function ContratosConvenios() {
                 <TableHead>Início</TableHead>
                 <TableHead>Término</TableHead>
                 <TableHead>Documentos PDF</TableHead>
+                <TableHead>Dossiê & Auditoria (XML / Glosas)</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {contratos.isLoading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-6">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-6">Carregando...</TableCell></TableRow>
               ) : contratosFiltrados.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Nenhum contrato localizado para este estabelecimento.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-6 text-muted-foreground">Nenhum contrato localizado para este estabelecimento.</TableCell></TableRow>
               ) : (
                 contratosFiltrados.map((c) => {
                   const conf = STATUS_CONFIG[c.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.inativo;
@@ -411,6 +422,34 @@ export default function ContratosConvenios() {
                         <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-dashed" onClick={() => abrirDocumentos(c.id)}>
                           <FileSearch className="h-3 w-3" /> {quantidadeDocumentos(c.id)} {quantidadeDocumentos(c.id) === 1 ? "documento" : "documentos"}
                         </Button>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-7 text-xs gap-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                            onClick={() => abrirDossie(c.id, "resumo")}
+                          >
+                            <BookOpen className="h-3 w-3" /> Pontos de Atenção
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1 border-amber-300 text-amber-800 hover:bg-amber-50"
+                            onClick={() => abrirDossie(c.id, "xml")}
+                          >
+                            <FileCode2 className="h-3 w-3" /> Cobrança XML
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1 border-purple-300 text-purple-800 hover:bg-purple-50"
+                            onClick={() => abrirDossie(c.id, "glosas")}
+                          >
+                            <Gavel className="h-3 w-3" /> Glosas
+                          </Button>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge className={`${conf.color} border-none`}>{conf.label}</Badge>
@@ -602,9 +641,22 @@ export default function ContratosConvenios() {
             )}
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="font-semibold">Documentos já importados</h3>
-                {documentos.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                <div className="flex items-center gap-2">
+                  {documentos.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {documentosContratoId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                      onClick={() => abrirDossie(documentosContratoId, "resumo")}
+                    >
+                      <BookOpen className="h-3.5 w-3.5" />
+                      Abrir Dossiê Consolidado (Pontos de Atenção + XML + Glosas)
+                    </Button>
+                  )}
+                </div>
               </div>
               {documentos.isError ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Não foi possível carregar os documentos deste contrato no momento.</p>
@@ -810,6 +862,17 @@ export default function ContratosConvenios() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ContratoDossieModal
+        open={dossieModalAberto}
+        onOpenChange={setDossieModalAberto}
+        contratoId={dossieContratoId}
+        abaInicial={dossieAbaInicial}
+        onAbrirDocumentoPdf={(docId) => {
+          setDossieModalAberto(false);
+          setDocumentoDetalheId(docId);
+        }}
+      />
     </div>
   );
 }

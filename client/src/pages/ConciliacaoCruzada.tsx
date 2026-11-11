@@ -2350,7 +2350,8 @@ function ConciliacaoCruzadaAtual() {
                         <th className="text-left p-2 font-medium min-w-[250px]">Descrição</th>
                         <th className="text-left p-2 font-medium">Tipo</th>
                         <th className="text-center p-2 font-medium">Qtd</th>
-                        <th className="text-right p-2 font-medium">Faturado</th>
+                        <th className="text-right p-2 font-medium">Faturado (XML)</th>
+                        <th className="text-right p-2 font-medium">Tabela Contrato</th>
                         <th className="text-right p-2 font-medium">Pago</th>
                         <th className="text-right p-2 font-medium">Glosado</th>
                         <th className="text-left p-2 font-medium">Data Exec.</th>
@@ -2364,9 +2365,24 @@ function ConciliacaoCruzadaAtual() {
                           <td className="p-2 text-sm">{item.descricaoItem || '-'}</td>
                           <td className="p-2"><Badge variant="secondary" className="text-xs">{item.tipoItem || '-'}</Badge></td>
                           <td className="p-2 text-center">{item.quantidade || 1}</td>
-                          <td className="p-2 text-right text-blue-600">{formatarMoeda(Number(item.valorFaturado))}</td>
+                          <td className="p-2 text-right text-blue-600">{formatarMoeda(Number(item.valorFaturado ?? item.valorTotal ?? 0))}</td>
+                          <td className="p-2 text-right">
+                            {item.valorContratadoTotal != null ? (
+                              <div className="flex flex-col items-end">
+                                <span className="font-semibold text-emerald-700">{formatarMoeda(Number(item.valorContratadoTotal))}</span>
+                                {item.statusCobrancaContrato === 'cobranca_menor_contrato' && (
+                                  <Badge className="bg-red-600 text-white text-[10px] px-1 py-0">Cobrado a Menor</Badge>
+                                )}
+                                {item.statusCobrancaContrato === 'cobranca_maior_contrato' && (
+                                  <Badge className="bg-amber-500 text-white text-[10px] px-1 py-0">Acima da Tabela</Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
                           <td className="p-2 text-right text-green-600">{formatarMoeda(Number(item.valorPago))}</td>
-                          <td className="p-2 text-right text-red-600">{formatarMoeda(Number(item.valorGlosado))}</td>
+                          <td className="p-2 text-right text-red-600">{formatarMoeda(Number(item.valorGlosado ?? item.valorGlosa ?? 0))}</td>
                           <td className="p-2 text-sm">{item.dataExecucao ? formatDateBR(item.dataExecucao) : '-'}</td>
                           <td className="p-2 text-center">{getStatusBadge(item.statusConciliacao || 'pendente', item)}</td>
                         </tr>
