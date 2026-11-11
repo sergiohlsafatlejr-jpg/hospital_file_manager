@@ -148,6 +148,56 @@ function inPlaceholders(items: string[]): string {
   return items.map(() => "?").join(",");
 }
 
+/** Zero informado é autoritativo. Só NULL (ou coluna ausente no legado) estima saldo. */
+async function consultarComSaldoLegado(
+  pool: Pool,
+  sql: string,
+  params: Array<string | number>,
+  coluna: "valorAberto" | "vl_aberto",
+  fallbackSql: string,
+) {
+  try {
+    return await pool.query<RowDataPacket[]>(sql, params);
+  } catch (err) {
+    const e = err as { code?: string; errno?: number; message?: string };
+    const colunaAusente = new RegExp(`Unknown column ['\x60](?:[a-zA-Z_]+\\.)?${coluna}['\x60]`, "i");
+    if (
+      (e?.code !== "ER_BAD_FIELD_ERROR" && e?.errno !== 1054) ||
+      !colunaAusente.test(e?.message || "")
+    ) throw err;
+    // Não repete erros de outras colunas nem altera dados/estrutura do legado.
+    return pool.query<RowDataPacket[]>(
+      sql.replaceAll(`COALESCE(${coluna}, ${fallbackSql})`, fallbackSql),
+      params,
+    );
+  }
+}
+
+const grupoFinanceiroXml = (competencia: unknown, convenio: unknown): string =>
+  JSON.stringify([competencia || null, normalizarConvenio(String(convenio || "Sem convênio"))]);
+
+/**
+ * Saldo analítico é líquido, sem clamp por dimensão. Pode ser negativo: um retorno
+ * sem vínculo não autoriza redistribuir recebido para um setor/tipo conhecido.
+ * O único clamp é o do resumo; seu excedente fica em linha explícita, não atribuível.
+ */
+function reconciliarSaldoMatrizXml(
+  rows: LinhaMatrizBi[],
+  saldoOficial: number,
+  formula: BiFormulaPctGlosa,
+): LinhaMatrizBi[] {
+  const ajuste = round2(saldoOficial - rows.reduce((total, row) => total + row.aReceber, 0));
+  if (ajuste !== 0) {
+    rows.push(buildMatrizRow(
+      "BI_AJUSTE_SALDO_GLOBAL",
+      "Ajuste global de saldo / Sem dimensão (não atribuível)",
+      { produzido: 0, faturado: 0, recebido: 0, glosa: 0, aReceber: ajuste },
+      formula,
+    ));
+  }
+  return rows;
+}
+
 export async function obterConfiguracaoBiCliente(
   estabelecimentoId: number,
 ): Promise<BiClientConfig> {
@@ -386,11 +436,14 @@ async function consultarBancoWarleine(
   }
 
   const whereSql = clauses.join(" AND ");
+  const saldoFallbackSql = "GREATEST(COALESCE(valorFaturado,0) - COALESCE(valorTotalRecebido,0) - COALESCE(valorGlosa,0), 0)";
+  const queryComSaldo = (sql: string, values: Array<string | number>) =>
+    consultarComSaldoLegado(pool, sql, values, "valorAberto", saldoFallbackSql);
   const selectMetricas = `
     COALESCE(SUM(valorFaturado), 0) AS faturado,
     COALESCE(SUM(valorTotalRecebido), 0) AS recebido,
     COALESCE(SUM(valorGlosa), 0) AS glosa,
-    COALESCE(SUM(valorAberto), 0) AS aReceber,
+    COALESCE(SUM(COALESCE(valorAberto, ${saldoFallbackSql})), 0) AS aReceber,
     COALESCE(SUM(valorRecursado), 0) AS glosaEmRecurso,
     COALESCE(SUM(valorGlosaRecuperada), 0) AS glosaRecuperada,
     COALESCE(SUM(valorGlosaAceita), 0) AS glosaAceita,
@@ -413,11 +466,11 @@ async function consultarBancoWarleine(
     [dispConvRows],
     [lastUpdateRows],
   ] = await Promise.all([
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT ${selectMetricas} FROM warleine_faturamento_itens_ativos WHERE ${whereSql}`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT competencia, ${selectMetricas}
        FROM warleine_faturamento_itens_ativos
        WHERE ${whereSql}
@@ -425,7 +478,7 @@ async function consultarBancoWarleine(
        ORDER BY competencia ASC`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT ${dimSetorSql} AS setor, ${selectMetricas}
        FROM warleine_faturamento_itens_ativos
        WHERE ${whereSql}
@@ -433,7 +486,7 @@ async function consultarBancoWarleine(
        ORDER BY faturado DESC`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT ${convChaveSql} AS convenioChave, MAX(${convNomeSql}) AS convenioNome, ${selectMetricas}
        FROM warleine_faturamento_itens_ativos
        WHERE ${whereSql}
@@ -441,7 +494,7 @@ async function consultarBancoWarleine(
        ORDER BY faturado DESC`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT COALESCE(NULLIF(TRIM(tipoItem),''), 'Não informado') AS tipo, ${selectMetricas}
        FROM warleine_faturamento_itens_ativos
        WHERE ${whereSql}
@@ -712,11 +765,14 @@ async function consultarBancoRecebimentoGeral(
   }
 
   const whereSql = clauses.join(" AND ");
+  const saldoFallbackSql = `GREATEST(COALESCE(vl_faturado,0) - ${recebidoExpr} - COALESCE(vl_glosas,0), 0)`;
+  const queryComSaldo = (sql: string, values: Array<string | number>) =>
+    consultarComSaldoLegado(pool, sql, values, "vl_aberto", saldoFallbackSql);
   const selectMetricas = `
     COALESCE(SUM(vl_faturado), 0) AS faturado,
     COALESCE(SUM(${recebidoExpr}), 0) AS recebido,
     COALESCE(SUM(vl_glosas), 0) AS glosa,
-    COALESCE(SUM(vl_aberto), 0) AS aReceberInformado,
+    COALESCE(SUM(COALESCE(vl_aberto, ${saldoFallbackSql})), 0) AS aReceber,
     COALESCE(SUM(vl_recurso), 0) AS glosaEmRecurso,
     COALESCE(SUM(gl_recuperado), 0) AS glosaRecuperada,
     COALESCE(SUM(gl_aceita), 0) AS glosaAceita,
@@ -739,26 +795,26 @@ async function consultarBancoRecebimentoGeral(
     [dispConvRows],
     [lastUpdateRows],
   ] = await Promise.all([
-    pool.query<RowDataPacket[]>(`SELECT ${selectMetricas} FROM recebimento_geral WHERE ${whereSql}`, params),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(`SELECT ${selectMetricas} FROM recebimento_geral WHERE ${whereSql}`, params),
+    queryComSaldo(
       `SELECT ${compExpr} AS competencia, ${selectMetricas}
        FROM recebimento_geral WHERE ${whereSql}
        GROUP BY ${compExpr} ORDER BY competencia ASC`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT ${dimSetorSql} AS setor, ${selectMetricas}
        FROM recebimento_geral WHERE ${whereSql}
        GROUP BY ${dimSetorSql} ORDER BY faturado DESC`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT ${convExpr} AS convenioNome, ${selectMetricas}
        FROM recebimento_geral WHERE ${whereSql}
        GROUP BY ${convExpr} ORDER BY faturado DESC`,
       params,
     ),
-    pool.query<RowDataPacket[]>(
+    queryComSaldo(
       `SELECT COALESCE(NULLIF(TRIM(tipo_procedimento),''), 'Não informado') AS tipo, ${selectMetricas}
        FROM recebimento_geral WHERE ${whereSql}
        GROUP BY COALESCE(NULLIF(TRIM(tipo_procedimento),''), 'Não informado')
@@ -827,16 +883,8 @@ async function consultarBancoRecebimentoGeral(
   const faturado = round2(r.faturado);
   const recebido = round2(r.recebido);
   const glosa = round2(r.glosa);
-  const aRecInfo = round2(r.aReceberInformado);
-  const aReceber = aRecInfo > 0 ? aRecInfo : round2(Math.max(faturado - recebido - glosa, 0));
-
-  const resolveAReceberRow = (row: RowDataPacket) => {
-    const info = round2(row.aReceberInformado);
-    const fat = round2(row.faturado);
-    const rec = round2(row.recebido);
-    const glo = round2(row.glosa);
-    return info > 0 ? info : round2(Math.max(fat - rec - glo, 0));
-  };
+  const aReceber = round2(r.aReceber);
+  const resolveAReceberRow = (row: RowDataPacket) => round2(row.aReceber);
 
   return {
     estabelecimento,
@@ -1001,12 +1049,8 @@ async function consultarBaseXmlOficial(
         ? "COALESCE(NULLIF(TRIM(ci.profissionalExecutante),''), NULLIF(TRIM(ci.codigoPrestadorExecutante),''), 'Hospital / Corpo Clínico')"
         : "COALESCE(NULLIF(TRIM(ci.setor),''), 'Não informado')";
 
-  const dimRetFallbackSql =
-    dimensaoSetor === "tipo_item"
-      ? "COALESCE(NULLIF(TRIM(d.tipo_lancamento),''), NULLIF(TRIM(d.tipo_item),''), 'Outros')"
-      : dimensaoSetor === "prestador"
-        ? "COALESCE(NULLIF(TRIM(d.prestador_executante),''), NULLIF(TRIM(d.codigo_prestador),''), 'Hospital / Corpo Clínico')"
-        : "'Não informado'";
+  const semDimensaoXml = "Sem dimensão / Retorno sem atribuição exata";
+  const dimRetFallbackSql = `'${semDimensaoXml}'`;
 
   const fatParams: Array<string | number> = [input.estabelecimentoId];
   let fatWhere = `WHERE ci.estabelecimentoId = ?
@@ -1068,7 +1112,8 @@ async function consultarBaseXmlOficial(
         TRIM(COALESCE(ci.codigoItem,'')) AS codigo_item,
         TRIM(COALESCE(ci.codigoItemTuss,'')) AS codigo_item_tuss,
         DATE(ci.dataExecucao) AS data_execucao,
-        ${dimCiSql} AS dim_setor
+        ${dimCiSql} AS dim_setor,
+        COALESCE(NULLIF(TRIM(ci.tipoItem),''), 'Outros') AS tipo_item_vinculado
       FROM contas_convenio_itens ci
       WHERE ci.estabelecimentoId = ?
         AND ci.competencia IS NOT NULL AND ci.competencia <> ''
@@ -1086,21 +1131,23 @@ async function consultarBaseXmlOficial(
           )
         )
     ), faturado_guias AS (
-      SELECT competencia, convenioId, conta_chave, guia_prestador AS guia, codigo_item, codigo_item_tuss, data_execucao, dim_setor
+      SELECT competencia, convenioId, conta_chave, guia_prestador AS guia, codigo_item, codigo_item_tuss, data_execucao, dim_setor, tipo_item_vinculado
       FROM faturado_base WHERE guia_prestador <> ''
       UNION
-      SELECT competencia, convenioId, conta_chave, guia_operadora, codigo_item, codigo_item_tuss, data_execucao, dim_setor
+      SELECT competencia, convenioId, conta_chave, guia_operadora, codigo_item, codigo_item_tuss, data_execucao, dim_setor, tipo_item_vinculado
       FROM faturado_base WHERE guia_operadora <> ''
     ), faturado_chaves AS (
-      SELECT competencia, convenioId, conta_chave, guia, codigo_item AS codigo_item, data_execucao, dim_setor
+      SELECT competencia, convenioId, conta_chave, guia, codigo_item AS codigo_item, data_execucao, dim_setor, tipo_item_vinculado
       FROM faturado_guias WHERE codigo_item <> ''
       UNION
-      SELECT competencia, convenioId, conta_chave, guia, codigo_item_tuss, data_execucao, dim_setor
+      SELECT competencia, convenioId, conta_chave, guia, codigo_item_tuss, data_execucao, dim_setor, tipo_item_vinculado
       FROM faturado_guias WHERE codigo_item_tuss <> ''
     ), atribuicoes AS (
       SELECT d.id AS demonstrativo_id,
         MIN(f.competencia) AS competencia_faturada,
-        MIN(f.dim_setor) AS dim_setor_vinculado,
+        COUNT(DISTINCT f.competencia) AS quantidade_competencias,
+        CASE WHEN COUNT(DISTINCT f.dim_setor)=1 THEN MIN(f.dim_setor) ELSE NULL END AS dim_setor_vinculado,
+        CASE WHEN COUNT(DISTINCT f.tipo_item_vinculado)=1 THEN MIN(f.tipo_item_vinculado) ELSE NULL END AS tipo_item_vinculado,
         COUNT(DISTINCT f.conta_chave) AS quantidade_contas
       FROM demonstrativo d
       JOIN faturado_chaves f
@@ -1114,9 +1161,10 @@ async function consultarBaseXmlOficial(
       SELECT d.id AS demonstrativo_id, d.convenio_id,
         d.codigo_prestador, d.prestador_executante, d.codigo_prestador_pagamento,
         a.competencia_faturada,
-        a.dim_setor_vinculado
+        a.dim_setor_vinculado,
+        a.tipo_item_vinculado
       FROM demonstrativo d
-      JOIN atribuicoes a ON a.demonstrativo_id=d.id AND a.quantidade_contas=1
+      JOIN atribuicoes a ON a.demonstrativo_id=d.id AND a.quantidade_contas=1 AND a.quantidade_competencias=1
       WHERE NOT EXISTS (
         SELECT 1 FROM prestadores_terceiros pt
         WHERE pt.convenioId=d.convenio_id
@@ -1142,6 +1190,7 @@ async function consultarBaseXmlOficial(
       SELECT d.*,
         v.competencia_faturada,
         COALESCE(v.dim_setor_vinculado, ${dimRetFallbackSql}) AS dim_setor,
+        COALESCE(v.tipo_item_vinculado, ${dimRetFallbackSql}) AS tipo_dimensao,
         DATE_FORMAT(d.data_referencia,'%Y/%m') AS competencia_informada,
         DATE_FORMAT(d.data_pagamento,'%Y/%m') AS mes_pagamento,
         CASE WHEN v.demonstrativo_id IS NOT NULL THEN 'vinculado' ELSE 'sem_vinculo' END AS status_vinculo
@@ -1292,21 +1341,23 @@ async function consultarBaseXmlOficial(
       fatParams,
     ),
     pool.query<RowDataPacket[]>(
-      `SELECT ${dimCiSql} AS setor,
+      `SELECT ci.competencia, COALESCE(NULLIF(TRIM(ci.convenio),''),'Sem convênio') AS convenio,
+              ${dimCiSql} AS setor,
               SUM(COALESCE(ci.valorTotal,0)) AS faturado,
               COUNT(DISTINCT ci.numeroConta) AS qtdContas
        FROM contas_convenio_itens ci
        ${fatWhere}
-       GROUP BY ${dimCiSql}`,
+       GROUP BY ci.competencia, COALESCE(NULLIF(TRIM(ci.convenio),''),'Sem convênio'), ${dimCiSql}`,
       fatParams,
     ),
     pool.query<RowDataPacket[]>(
-      `SELECT COALESCE(NULLIF(TRIM(ci.tipoItem),''), 'Outros') AS tipo,
+      `SELECT ci.competencia, COALESCE(NULLIF(TRIM(ci.convenio),''),'Sem convênio') AS convenio,
+              COALESCE(NULLIF(TRIM(ci.tipoItem),''), 'Outros') AS tipo,
               SUM(COALESCE(ci.valorTotal,0)) AS faturado,
               COUNT(DISTINCT ci.numeroConta) AS qtdContas
        FROM contas_convenio_itens ci
        ${fatWhere}
-       GROUP BY COALESCE(NULLIF(TRIM(ci.tipoItem),''), 'Outros')`,
+       GROUP BY ci.competencia, COALESCE(NULLIF(TRIM(ci.convenio),''),'Sem convênio'), COALESCE(NULLIF(TRIM(ci.tipoItem),''), 'Outros')`,
       fatParams,
     ),
     pool.query<RowDataPacket[]>(
@@ -1358,13 +1409,13 @@ async function consultarBaseXmlOficial(
     ),
     pool.query<RowDataPacket[]>(
       `${retornoVinculadoCte}
-       SELECT COALESCE(NULLIF(TRIM(d.tipo_lancamento),''), NULLIF(TRIM(d.tipo_item),''), 'Outros') AS tipo,
+       SELECT d.tipo_dimensao AS tipo,
               SUM(COALESCE(d.valor_pago,0)) AS recebido,
               SUM(COALESCE(d.valor_glosa,0)) AS glosado
        FROM retorno_final d
        LEFT JOIN convenios c ON c.id = d.convenio_id
        ${retWhere}
-       GROUP BY COALESCE(NULLIF(TRIM(d.tipo_lancamento),''), NULLIF(TRIM(d.tipo_item),''), 'Outros')`,
+       GROUP BY d.tipo_dimensao`,
       retParams,
     ),
     temFiltroSetor
@@ -1434,18 +1485,29 @@ async function consultarBaseXmlOficial(
     ),
     pool.query<RowDataPacket[]>(
       `${retornoVinculadoCte}
+       , motivos_resolvidos AS (
+         SELECT codigo, descricao FROM (
+           SELECT TRIM(codigo) AS codigo, descricao,
+             ROW_NUMBER() OVER (
+               PARTITION BY TRIM(codigo)
+               ORDER BY CASE WHEN estabelecimentoId IS NULL THEN 1 ELSE 0 END, id ASC
+             ) AS prioridade
+           FROM motivosGlosa
+           WHERE ativo='sim' AND (estabelecimentoId = ? OR estabelecimentoId IS NULL)
+         ) catalogo_autorizado WHERE prioridade=1
+       )
        SELECT COALESCE(NULLIF(TRIM(d.codigo_glosa),''),'S/MOTIVO') AS codigo,
          COALESCE(NULLIF(TRIM(mg.descricao),''),NULLIF(TRIM(d.erro_tiss),''),'Glosa sem motivo informado') AS motivo,
          SUM(COALESCE(d.valor_glosa,0)) AS valor_glosado,
          COUNT(*) AS quantidade
        FROM retorno_final d
        LEFT JOIN convenios c ON c.id=d.convenio_id
-       LEFT JOIN motivosGlosa mg ON mg.codigo=d.codigo_glosa AND mg.ativo='sim'
+       LEFT JOIN motivos_resolvidos mg ON mg.codigo=TRIM(d.codigo_glosa)
        ${retWhere} AND COALESCE(d.valor_glosa,0) > 0
        GROUP BY COALESCE(NULLIF(TRIM(d.codigo_glosa),''),'S/MOTIVO'), COALESCE(NULLIF(TRIM(mg.descricao),''),NULLIF(TRIM(d.erro_tiss),''),'Glosa sem motivo informado')
        ORDER BY valor_glosado DESC
        LIMIT 30`,
-      retParams,
+      [...retParams.slice(0, 4), input.estabelecimentoId, ...retParams.slice(4)],
     ),
     pool.query<RowDataPacket[]>(
       `${retornoVinculadoCte}
@@ -1577,7 +1639,6 @@ async function consultarBaseXmlOficial(
     compMap.set(key, list);
   }
   const porCompetencia: LinhaMatrizBi[] = [...compMap.entries()]
-    .filter(([k]) => k !== "Sem competência")
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([comp, items]) => {
       const ind = calcularIndicadoresFinanceiros(items);
@@ -1589,7 +1650,7 @@ async function consultarBaseXmlOficial(
           faturado: ind.totalFaturado,
           recebido: ind.totalRecebido,
           glosa: ind.totalGlosado,
-          aReceber: ind.totalSaldo,
+          aReceber: round2(ind.totalFaturado - ind.totalRecebido - ind.totalGlosado),
           qtdContas: ind.quantidade,
         },
         formula,
@@ -1614,7 +1675,7 @@ async function consultarBaseXmlOficial(
           faturado: ind.totalFaturado,
           recebido: ind.totalRecebido,
           glosa: ind.totalGlosado,
-          aReceber: ind.totalSaldo,
+          aReceber: round2(ind.totalFaturado - ind.totalRecebido - ind.totalGlosado),
           qtdContas: ind.quantidade,
         },
         formula,
@@ -1622,104 +1683,66 @@ async function consultarBaseXmlOficial(
     })
     .sort((a, b) => b.faturado - a.faturado);
 
-  // Agrupar por Setor (unindo faturado de contas_convenio_itens + recebido/glosa vinculado do retorno)
-  const setorAgg = new Map<
-    string,
-    { faturado: number; recebido: number; glosa: number; qtdContas: number }
-  >();
-  let somaFatXmlSetor = 0;
-  let somaRecXmlSetor = 0;
-  let somaGloXmlSetor = 0;
+  reconciliarSaldoMatrizXml(porCompetencia, resumoOficial.totalSaldo, formula);
+  reconciliarSaldoMatrizXml(porConvenio, resumoOficial.totalSaldo, formula);
 
-  for (const row of fatSetorRows) {
-    const k = String(row.setor || "Não informado");
-    const cur = setorAgg.get(k) || { faturado: 0, recebido: 0, glosa: 0, qtdContas: 0 };
-    const fat = Number(row.faturado || 0);
-    cur.faturado += fat;
-    cur.qtdContas += Number(row.qtdContas || 0);
-    somaFatXmlSetor += fat;
-    setorAgg.set(k, cur);
+  // Faturado é reconhecido UMA vez por competência/convênio na consolidação.
+  // A dimensão apenas distribui XML da fonte escolhida. Faltantes de cada grupo
+  // ficam sem dimensão, mesmo se outro grupo tiver faturado/dimensões conhecidas.
+  const faturadoBasePorGrupo = new Map<string, number>();
+  for (const row of fatRows) {
+    const grupo = grupoFinanceiroXml(row.competencia, row.convenio);
+    faturadoBasePorGrupo.set(grupo, (faturadoBasePorGrupo.get(grupo) || 0) + Number(row.faturado || 0));
   }
-  for (const row of retSetorRows) {
-    const k = String(row.setor || "Não informado");
-    const cur = setorAgg.get(k) || { faturado: 0, recebido: 0, glosa: 0, qtdContas: 0 };
-    const rec = Number(row.recebido || 0);
-    const glo = Number(row.glosado || 0);
-    cur.recebido += rec;
-    cur.glosa += glo;
-    if (!cur.qtdContas) cur.qtdContas = Number(row.qtdGuias || 0);
-    somaRecXmlSetor += rec;
-    somaGloXmlSetor += glo;
-    setorAgg.set(k, cur);
-  }
-
-  // Se houver complemento externo/manual sem setor (quando sem filtro de setor), reconcilia para bater o Total
-  if (!temFiltroSetor) {
-    const diffFat = round2(resumoOficial.totalFaturado - somaFatXmlSetor);
-    const diffRec = round2(resumoOficial.totalRecebido - somaRecXmlSetor);
-    const diffGlo = round2(resumoOficial.totalGlosado - somaGloXmlSetor);
-    if (diffFat > 0.01 || diffRec > 0.01 || diffGlo > 0.01) {
-      const k = setorAgg.has("Não informado") ? "Não informado" : "Lançamento Geral / Sem Setor";
-      const cur = setorAgg.get(k) || { faturado: 0, recebido: 0, glosa: 0, qtdContas: 0 };
-      if (diffFat > 0) cur.faturado += diffFat;
-      if (diffRec > 0) cur.recebido += diffRec;
-      if (diffGlo > 0) cur.glosa += diffGlo;
-      setorAgg.set(k, cur);
+  const construirDimensaoXml = (
+    fatDimRows: RowDataPacket[],
+    retDimRows: RowDataPacket[],
+    campo: "setor" | "tipo",
+  ): LinhaMatrizBi[] => {
+    type Valores = { faturado: number; recebido: number; glosa: number; qtdContas: number };
+    const agg = new Map<string, Valores>();
+    const alocadoPorGrupo = new Map<string, number>();
+    const obter = (chave: string): Valores => {
+      if (!agg.has(chave)) agg.set(chave, { faturado: 0, recebido: 0, glosa: 0, qtdContas: 0 });
+      return agg.get(chave)!;
+    };
+    for (const row of fatDimRows) {
+      const grupo = grupoFinanceiroXml(row.competencia, row.convenio);
+      if ((faturadoBasePorGrupo.get(grupo) || 0) <= 0) continue;
+      const cur = obter(String(row[campo] || "Não informado"));
+      const fat = Number(row.faturado || 0);
+      cur.faturado += fat;
+      cur.qtdContas += Number(row.qtdContas || 0);
+      alocadoPorGrupo.set(grupo, (alocadoPorGrupo.get(grupo) || 0) + fat);
     }
-  }
-
-  const porSetor: LinhaMatrizBi[] = [...setorAgg.entries()]
-    .map(([setor, v]) => {
-      const fatReconhecido = v.faturado > 0 ? v.faturado : v.recebido + v.glosa;
-      return buildMatrizRow(
-        setor,
-        setor,
-        {
-          faturado: fatReconhecido,
-          recebido: v.recebido,
-          glosa: v.glosa,
-          qtdContas: v.qtdContas,
-        },
-        formula,
-      );
-    })
-    .sort((a, b) => b.faturado - a.faturado);
-
-  // Agrupar por Tipo de Item
-  const tipoAgg = new Map<
-    string,
-    { faturado: number; recebido: number; glosa: number; qtdContas: number }
-  >();
-  for (const row of fatTipoRows) {
-    const k = String(row.tipo || "Outros");
-    const cur = tipoAgg.get(k) || { faturado: 0, recebido: 0, glosa: 0, qtdContas: 0 };
-    cur.faturado += Number(row.faturado || 0);
-    cur.qtdContas += Number(row.qtdContas || 0);
-    tipoAgg.set(k, cur);
-  }
-  for (const row of retTipoRows) {
-    const k = String(row.tipo || "Outros");
-    const cur = tipoAgg.get(k) || { faturado: 0, recebido: 0, glosa: 0, qtdContas: 0 };
-    cur.recebido += Number(row.recebido || 0);
-    cur.glosa += Number(row.glosado || 0);
-    tipoAgg.set(k, cur);
-  }
-  const porTipoItem: LinhaMatrizBi[] = [...tipoAgg.entries()]
-    .map(([tipo, v]) => {
-      const fatReconhecido = v.faturado > 0 ? v.faturado : v.recebido + v.glosa;
-      return buildMatrizRow(
-        tipo,
-        tipo,
-        {
-          faturado: fatReconhecido,
-          recebido: v.recebido,
-          glosa: v.glosa,
-          qtdContas: v.qtdContas,
-        },
-        formula,
-      );
-    })
-    .sort((a, b) => b.faturado - a.faturado);
+    for (const reg of consolidados) {
+      const grupo = grupoFinanceiroXml(reg.competencia, reg.convenio);
+      const faltante = round2(Number(reg.faturado || 0) - (alocadoPorGrupo.get(grupo) || 0));
+      if (faltante !== 0) {
+        obter("Sem dimensão / Faturado reconhecido por grupo (externo/manual/retorno)").faturado += faltante;
+      }
+    }
+    for (const row of retDimRows) {
+      const cur = obter(String(row[campo] || semDimensaoXml));
+      cur.recebido += Number(row.recebido || 0);
+      cur.glosa += Number(row.glosado || 0);
+      // Não converte qtdGuias em qtdContas: não há identidade de conta sem vínculo.
+    }
+    for (const row of manualRows) {
+      const cur = obter("Sem dimensão / Complemento externo/manual");
+      cur.recebido += Number(row.recebido || 0);
+      cur.glosa += Number(row.glosado || 0);
+    }
+    const rows = [...agg.entries()].map(([chave, v]) => buildMatrizRow(
+      chave,
+      chave,
+      { ...v, aReceber: round2(v.faturado - v.recebido - v.glosa) },
+      formula,
+    )).sort((a, b) => b.faturado - a.faturado);
+    return reconciliarSaldoMatrizXml(rows, resumoOficial.totalSaldo, formula);
+  };
+  const porSetor = construirDimensaoXml(fatSetorRows, retSetorRows, "setor");
+  const porTipoItem = construirDimensaoXml(fatTipoRows, retTipoRows, "tipo");
 
   const rawDate = lastUpdateRows[0]?.atualizadoEm;
   const parsedDate = rawDate ? new Date(rawDate) : null;
