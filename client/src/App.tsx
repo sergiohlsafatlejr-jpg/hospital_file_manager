@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { DisplayScaleProvider } from "./contexts/DisplayScaleContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useEstabelecimento } from "./contexts/EstabelecimentoContext";
 import { lazy, Suspense, useEffect, useRef } from "react";
@@ -276,12 +277,14 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="light" switchable={true}>
+      <DisplayScaleProvider>
+        <ThemeProvider defaultTheme="light" switchable={true}>
         <TooltipProvider>
           <Toaster />
           <Router />
         </TooltipProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </DisplayScaleProvider>
     </ErrorBoundary>
   );
 }

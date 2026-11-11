@@ -1036,10 +1036,7 @@ export default function FabricaFaturamento() {
 
         {/* Cards dos Setores Liberados para o Colaborador */}
         <div
-          className={`grid grid-cols-2 md:grid-cols-3 xl:grid-cols-${Math.min(
-            6,
-            Math.max(2, setoresVisiveis.length)
-          )} gap-3`}
+          className={`grid grid-cols-2 md:grid-cols-3 ${setoresVisiveis.length >= 6 ? "xl:grid-cols-6" : setoresVisiveis.length === 5 ? "xl:grid-cols-5" : setoresVisiveis.length === 4 ? "xl:grid-cols-4" : setoresVisiveis.length === 3 ? "xl:grid-cols-3" : "xl:grid-cols-2"} gap-3`}
         >
           {setoresVisiveis.map((setor) => {
             const dados = resumoSetores?.porSetor?.[setor.id] || {
@@ -1905,7 +1902,7 @@ export default function FabricaFaturamento() {
                         filtroFilaRapida === "guia_vencida_25d" ? "todas" : "guia_vencida_25d"
                       )
                     }
-                    className={`cursor-pointer rounded-lg border px-3.5 py-2.5 text-xs transition-all flex items-center justify-between gap-3 ${
+                    className={`cursor-pointer rounded-lg border px-3.5 py-2.5 text-xs transition-all flex flex-wrap items-center justify-between gap-3 ${
                       resumoPrazosSetor.guiasVencidas25d > 0
                         ? "bg-red-50/70 dark:bg-red-950/25 border-red-300 dark:border-red-800"
                         : "bg-blue-50/60 dark:bg-blue-950/25 border-blue-200 dark:border-blue-800"
@@ -1950,7 +1947,7 @@ export default function FabricaFaturamento() {
                         filtroFilaRapida === "sla_60h_estourado" ? "todas" : "sla_60h_estourado"
                       )
                     }
-                    className={`cursor-pointer rounded-lg border px-3.5 py-2.5 text-xs transition-all flex items-center justify-between gap-3 ${
+                    className={`cursor-pointer rounded-lg border px-3.5 py-2.5 text-xs transition-all flex flex-wrap items-center justify-between gap-3 ${
                       resumoPrazosSetor.sla60hEstourado > 0
                         ? "bg-red-50/70 dark:bg-red-950/25 border-red-300 dark:border-red-800"
                         : "bg-slate-50/80 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800"
@@ -2188,13 +2185,13 @@ export default function FabricaFaturamento() {
                             }
                           />
                         </TableHead>
-                        <TableHead>Paciente / Atendimento</TableHead>
-                        <TableHead>Hospital & Convênio</TableHead>
-                        <TableHead>Entrada / Alta / Receb.</TableHead>
-                        <TableHead>Setor & Status</TableHead>
-                        <TableHead>XML / Regras Auditoria</TableHead>
-                        <TableHead>Responsável / Fila</TableHead>
-                        <TableHead className="text-right">Ações do Setor</TableHead>
+                        <TableHead className="min-w-[13rem]">Paciente / Atendimento</TableHead>
+                        <TableHead className="min-w-[9rem]">Hospital & Convênio</TableHead>
+                        <TableHead className="min-w-[10.5rem]">Entrada / Alta / Receb.</TableHead>
+                        <TableHead className="min-w-[7.5rem]">Setor & Status</TableHead>
+                        <TableHead className="min-w-[10rem]">XML / Regras Auditoria</TableHead>
+                        <TableHead className="min-w-[9.5rem]">Responsável / Fila</TableHead>
+                        <TableHead className="text-right min-w-[11rem]">Ações do Setor</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2230,7 +2227,7 @@ export default function FabricaFaturamento() {
                               />
                             </TableCell>
 
-                            <TableCell>
+                            <TableCell className="max-w-[20rem] xl:max-w-[24rem] 2xl:max-w-[30rem]">
                               <div className="font-semibold text-foreground">
                                 {conta.nomePaciente}
                               </div>
@@ -2505,7 +2502,7 @@ export default function FabricaFaturamento() {
                                   })
                                 }
                               >
-                                <SelectTrigger className="h-7 w-40 text-xs">
+                                <SelectTrigger className="h-7 w-full min-w-[8.5rem] max-w-[11rem] text-xs">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -2530,7 +2527,7 @@ export default function FabricaFaturamento() {
                             </TableCell>
 
                             <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              <div className="ml-auto flex max-w-[16.5rem] 2xl:max-w-[23rem] items-center justify-end gap-1.5 flex-wrap">
                                 {/* AÇÕES DO SETOR 1: RECEPÇÃO */}
                                 {conta.setorAtual === "recepcao" && (
                                   <Button

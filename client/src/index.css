@@ -224,7 +224,7 @@ html:is(.dark) {
     .container {
       padding-left: 2rem; /* 32px - desktop padding */
       padding-right: 2rem;
-      max-width: 1280px; /* Standard content width */
+      max-width: 100%; /* Fluid content width across all monitor resolutions */
     }
   }
 
@@ -307,4 +307,32 @@ html:is(.dark) {
   .filter-row > * {
     @apply w-full sm:w-auto;
   }
+}
+
+
+/*
+ * Escala fluida de tipografia auxiliar:
+ * Converte classes utilitárias fixas em px (ex.: text-[10px], text-[11px])
+ * para rem, garantindo que badges, alertas e subtítulos escalem junto com a
+ * resolução de cada monitor sem ficarem minúsculos em telas Full HD / 2K / 4K.
+ */
+.text-\[9px\] {
+  font-size: 0.625rem;
+  line-height: 1.35;
+}
+.text-\[10px\] {
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+.text-\[11px\] {
+  font-size: 0.725rem;
+  line-height: 1.4;
+}
+.text-\[12px\] {
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.text-\[13px\] {
+  font-size: 0.8125rem;
+  line-height: 1.45;
 }

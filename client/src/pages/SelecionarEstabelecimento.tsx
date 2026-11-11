@@ -2,6 +2,7 @@ import { AlertCircle, Building2, MapPin, FileText, LogIn, Newspaper, ExternalLin
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DisplayScaleControl } from "@/components/DisplayScaleControl";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEstabelecimento, Estabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useLocation } from "wouter";
@@ -90,6 +91,7 @@ export default function SelecionarEstabelecimento() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <DisplayScaleControl />
               {isAuthenticated ? (
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-muted-foreground hidden sm:block">

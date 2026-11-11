@@ -98,7 +98,10 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { DisplayScaleControl } from "./DisplayScaleControl";
 import { MotorRegrasNotificationBell } from "./MotorRegrasNotificationBell";
+import { computeResponsiveDefaultSidebarWidth } from "@/lib/displayScale";
+import { useDisplayScale } from "@/contexts/DisplayScaleContext";
 import { SettingsMenu } from "./SettingsMenu";
 import { trpc } from "@/lib/trpc";
 import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica } from "@/lib/fabricaSetoresVisiveis";
@@ -265,7 +268,7 @@ const menuItems: MenuItem[] = [
 
 ];
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
+const SIDEBAR_WIDTH_KEY = "sidebar-width-custom";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
@@ -378,15 +381,18 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
+  const { viewport } = useDisplayScale();
+  const [customSidebarWidth, setCustomSidebarWidth] = useState<number | null>(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH ? parsed : null;
   });
+  const sidebarWidth = customSidebarWidth ?? computeResponsiveDefaultSidebarWidth(viewport.width);
+  const setSidebarWidth = (width: number) => {
+    setCustomSidebarWidth(width);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, width.toString());
+  };
   const { loading, user } = useAuth();
-
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
 
   if (loading) {
     return <DashboardLayoutSkeleton />
@@ -849,6 +855,7 @@ function DashboardLayoutContent({
               </span>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              <DisplayScaleControl compact />
               <MotorRegrasNotificationBell />
               {estabelecimentoAtual && estabelecimentoAtual.id > 0 && (
                 <div className="flex items-center gap-1 text-xs text-muted-foreground bg-primary/5 px-2 py-0.5 rounded-full max-w-[120px]">
@@ -866,19 +873,25 @@ function DashboardLayoutContent({
               <span className="text-sm font-medium text-primary">Visualizando:</span>
               <span className="text-sm font-semibold text-foreground">{estabelecimentoAtual.nome}</span>
             </div>
-            <MotorRegrasNotificationBell />
+            <div className="flex items-center gap-2.5">
+              <DisplayScaleControl />
+              <MotorRegrasNotificationBell />
+            </div>
           </div>
         )}
         {!isMobile && (!estabelecimentoAtual || estabelecimentoAtual.id <= 0) && (
           <div className="flex items-center justify-end px-6 py-3 bg-card border-b">
-            <MotorRegrasNotificationBell />
+            <div className="flex items-center gap-2.5">
+              <DisplayScaleControl />
+              <MotorRegrasNotificationBell />
+            </div>
           </div>
         )}
-        <main className="flex-1 p-3 sm:p-4 lg:p-6">
+        <div className="flex-1 min-w-0 w-full max-w-full p-3 sm:p-4 lg:p-5 2xl:p-6">
           <AccessGuard location={location} isGestor={isGestor} temAcessoModulo={temAcessoModulo} userRole={user?.role} estabelecimentoId={estabelecimentoAtual?.id}>
             {children}
           </AccessGuard>
-        </main>
+        </div>
       </SidebarInset>
     </>
   );

@@ -6,7 +6,7 @@
     <meta name="google" content="notranslate" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+      content="width=device-width, initial-scale=1.0" />
     <title>Safatle Gerenciamento</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/logo-192.png" />
@@ -31,6 +31,30 @@
         } else {
           document.documentElement.classList.remove('dark');
         }
+      })();
+      // Apply resolution-aware root font-size immediately before first paint
+      (function() {
+        try {
+          var savedScale = JSON.parse(localStorage.getItem('safatle-display-scale') || 'null');
+          var vw = window.innerWidth || 1440;
+          var vh = window.innerHeight || 900;
+          var px = 16;
+          if (savedScale && savedScale.mode === 'manual' && typeof savedScale.manualPercent === 'number') {
+            var pct = Math.min(135, Math.max(85, Math.round(savedScale.manualPercent)));
+            px = Math.round(pct * 0.16 * 100) / 100;
+          } else if (vw >= 768) {
+            var maxEff = vw > 1680 ? Math.max(1680, Math.round(vh * (16 / 9) * 1.12)) : vw;
+            var ew = Math.min(vw, maxEff);
+            if (ew <= 1024) px = 14.75;
+            else if (ew <= 1366) px = 14.75 + (15.2 - 14.75) * ((ew - 1024) / (1366 - 1024));
+            else if (ew <= 1600) px = 15.2 + (16.0 - 15.2) * ((ew - 1366) / (1600 - 1366));
+            else if (ew <= 1920) px = 16.0 + (16.75 - 16.0) * ((ew - 1600) / (1920 - 1600));
+            else if (ew <= 2560) px = 16.75 + (18.5 - 16.75) * ((ew - 1920) / (2560 - 1920));
+            else px = 18.5 + (20.5 - 18.5) * Math.min(1, (ew - 2560) / (3840 - 2560));
+            px = Math.round(px * 100) / 100;
+          }
+          document.documentElement.style.fontSize = px + 'px';
+        } catch (e) {}
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
