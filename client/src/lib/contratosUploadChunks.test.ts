@@ -18,6 +18,7 @@ function memoryStorage() {
   const storage: UploadSessionStorage = {
     getItem: key => values.get(key) ?? null,
     setItem: (key, value) => { values.set(key, value); },
+    removeItem: key => { values.delete(key); },
   };
   return { values, storage };
 }
@@ -237,6 +238,14 @@ describe("authenticated resumable chunk transport", () => {
     const file = pdf(), mock = fixture(file, { recoveryRequired: true });
     await expect(uploadContratoPdf(file, { contratoId: 1, signal: signal(), transport: mock.transport })).rejects.toThrow("recuperação controlada");
     expect(mock.events.some(event => event.startsWith("PUT") || event.endsWith("/finalizar"))).toBe(false);
+  });
+  it("recovers cleanly on a new user attempt when storage holds a previous failed/expired session", async () => {
+    const file = pdf(), failed = fixture(file, { recoveryRequired: true }), { storage } = memoryStorage();
+    await expect(uploadContratoPdf(file, { contratoId: 1, signal: signal(), storage, transport: failed.transport })).rejects.toThrow("recuperação controlada");
+    const recovered = fixture(file);
+    const result = await uploadContratoPdf(file, { contratoId: 1, signal: signal(), storage, transport: recovered.transport });
+    expect(result.processados).toBe(1);
+    expect(recovered.createBodies).toHaveLength(1);
   });
   it("keeps an uncertain creation guard across reload rather than blindly creating duplicates", async () => {
     const file = pdf(), mock = fixture(file, { loseCreateResponse: true }), { storage } = memoryStorage();

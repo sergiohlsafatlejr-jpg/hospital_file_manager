@@ -30,7 +30,7 @@ export type UploadDocument = {
   erro?: string;
 };
 export type UploadResult = { processados: number; documentos: UploadDocument[] };
-export type UploadSessionStorage = Pick<Storage, "getItem" | "setItem">;
+export type UploadSessionStorage = Pick<Storage, "getItem" | "setItem"> & Partial<Pick<Storage, "removeItem">>;
 export type UploadOptions = {
   contratoId: number;
   batchId?: string;
@@ -278,8 +278,8 @@ export async function uploadContratoPdf(file: PdfUploadFile, options: UploadOpti
     return response.status === 204 ? undefined : response.json();
   };
   const jsonPost = (body?: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-  let sessionId: string;
-  let chunkSize: number;
+  let sessionId!: string;
+  let chunkSize!: number;
   const statusFor = async (id: string): Promise<SessionStatus> => {
     for (let attempt = 0; ; attempt++) {
       try { return parseStatus(await request(`${BASE}/${encodeURIComponent(id)}`)); }
@@ -289,14 +289,27 @@ export async function uploadContratoPdf(file: PdfUploadFile, options: UploadOpti
       }
     }
   };
-  let status: SessionStatus;
+  let status!: SessionStatus;
   if (saved) {
     if (!saved.sessionId) throw new Error("Resposta da criação da sessão incerta. Não criaremos outra sessão às cegas; confira a sessão com o suporte.");
     sessionId = saved.sessionId;
+    try {
     status = await statusFor(sessionId);
+    } catch (error) {
+      if (error instanceof HttpUploadError && [404, 409, 410, 412].includes(error.status)) {
+        saved = undefined;
+      } else {
+        throw error;
+      }
+    }
     // GET must echo the negotiated chunkSize to resume non-default chunk sizes.
-    chunkSize = status.chunkSize ?? CONTRATOS_PDF_CHUNK_BYTES;
-  } else {
+    if (saved && (status.recoveryRequired || ["erro", "expirado", "interrompido"].includes(status.state))) {
+      saved = undefined;
+    } else if (saved) {
+      chunkSize = status.chunkSize ?? CONTRATOS_PDF_CHUNK_BYTES;
+    }
+  }
+  if (!saved) {
     // Persist the uncertain-create guard BEFORE POST; a lost response is not safe to replay.
     save(null);
     const info = parseInfo(await request(BASE, jsonPost({
@@ -314,7 +327,10 @@ export async function uploadContratoPdf(file: PdfUploadFile, options: UploadOpti
     if (next.totalChunks !== totalChunks || (next.chunkSize !== undefined && next.chunkSize !== chunkSize)) {
       throw new Error("A geometria dos blocos diverge da sessão; nenhum bloco será reenviado.");
     }
-    if (next.recoveryRequired || ["erro", "expirado", "interrompido"].includes(next.state)) throw new Error("A sessão exige recuperação controlada; não será retomada automaticamente.");
+    if (next.recoveryRequired || ["erro", "expirado", "interrompido"].includes(next.state)) {
+      options.storage?.removeItem?.(storageKey);
+      throw new Error("A sessão exige recuperação controlada; não será retomada automaticamente.");
+    }
     if (next.state !== "recebendo" && next.uploadedIndices.length !== totalChunks) throw new Error("Estado da sessão diverge dos blocos recebidos.");
     return next;
   };

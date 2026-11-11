@@ -396,8 +396,16 @@ export function createContratosUploadRepository(getDatabase: () => Promise<Await
         // select-then-insert race for batches, even across app replicas.
         const [contract] = await tx.select().from(contracts).where(eq(contracts.id, manifest.contratoId)).for("update");
         if (!contract || contract.estabelecimentoId !== manifest.estabelecimentoId) fail(403, "Contrato não pertence à unidade autorizada.");
-        const [duplicate] = await tx.select({ id: documents.id }).from(documents).where(and(eq(documents.contratoId, manifest.contratoId), eq(documents.sha256, manifest.sha256))).limit(1);
-        if (duplicate) fail(409, "Este PDF já está reservado ou anexado ao contrato. Retome sua sessão original.");
+        const [duplicate] = await tx.select({ id: documents.id, status: documents.status, criadoPor: documents.criadoPor, createdAt: documents.createdAt, updatedAt: documents.updatedAt }).from(documents).where(and(eq(documents.contratoId, manifest.contratoId), eq(documents.sha256, manifest.sha256))).limit(1);
+        if (duplicate) {
+          const duplicateTs = new Date(duplicate.updatedAt ?? duplicate.createdAt).getTime();
+          const isExpiredProcessing = duplicate.status === "processando" && duplicate.criadoPor === manifest.actorId && Number.isFinite(duplicateTs) && Date.now() - duplicateTs > CONTRATOS_UPLOAD_TTL_MS;
+          if (duplicate.status === "erro" || isExpiredProcessing) {
+            await tx.delete(documents).where(eq(documents.id, duplicate.id));
+          } else {
+            fail(409, "Este PDF já está reservado ou anexado ao contrato. Retome sua sessão original.");
+          }
+        }
         const prefix = `contratos-upload/${manifest.contratoId}/${manifest.actorId}/${manifest.batchHash}/`;
         const batch = await tx.select({ storageKey: documents.storageKey, tamanhoBytes: documents.tamanhoBytes }).from(documents).where(and(eq(documents.contratoId, manifest.contratoId), eq(documents.criadoPor, manifest.actorId), like(documents.storageKey, `${prefix}%`)));
         if (batch.some(row => !row.storageKey.startsWith(`${prefix}b${manifest.batchTotalBytes}/`))) fail(409, "Tamanho total do lote diverge da reserva original.");
@@ -500,7 +508,29 @@ export async function processContratosUploadPdfFile(filePath: string, byteLength
   signal?.throwIfAborted();
   const service: PdfFileService = await import("./contratosConveniosPdfService");
   signal?.throwIfAborted();
-  if (service.lerContratoPdfArquivo) return service.lerContratoPdfArquivo(filePath, signal);
+  if (service.lerContratoPdfArquivo) {
+    try {
+      return await service.lerContratoPdfArquivo(filePath, signal);
+    } catch (error) {
+      signal?.throwIfAborted();
+      const code = (error as { code?: string })?.code;
+      if (code === "PDF_ARQUIVO_INVALIDO" || code === "PDF_LIMITE_BYTES") {
+        fail(422, error instanceof Error ? error.message : "Arquivo PDF inválido.");
+      }
+      console.warn("[Contratos PDF] Extração Poppler indisponível ou incompleta; usando fallback:", (error as Error)?.message || error);
+      if (byteLength <= 64 * 1024 * 1024 && (await fs.stat(filePath)).size === byteLength) {
+        try {
+          const buffer = await fs.readFile(filePath, { signal });
+          signal?.throwIfAborted();
+          return await service.lerContratoPdf(buffer);
+        } catch (fallbackError) {
+          signal?.throwIfAborted();
+          console.warn("[Contratos PDF] Fallback pdf-parse falhou; marcando como ocr_necessario:", (fallbackError as Error)?.message || fallbackError);
+        }
+      }
+      return { paginas: 0, textoExtraido: "", pontosImportantes: [], status: "ocr_necessario" };
+    }
+  }
   // Compatibility for small PDFs only. Never allocate a 150 MiB Buffer.
   if (byteLength > CONTRATOS_UPLOAD_CHUNK_BYTES || (await fs.stat(filePath)).size !== byteLength) fail(412, "Processamento PDF por arquivo indisponível.");
   signal?.throwIfAborted();
