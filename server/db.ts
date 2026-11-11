@@ -2,6 +2,7 @@ import { eq, and, desc, like, sql, gte, lte, lt, gt, or, inArray, count, isNull,
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, Pool } from "mysql2/promise";
 import Decimal from "decimal.js";
+import { projetarJustificativaConciliacaoIssue182, exigirJustificativasConciliacaoIssue182 } from "./contratosDossieIssue182Consumo";
 import { describeAuthFailure } from "./authDiagnostics";
 import type { ProcedimentoFonte } from "./procedimentosTabela";
 import { isRhPermissionAuditOnly, markRhPermissionAuditOnly } from "./rhPermissionAuditOrigin";
@@ -10413,7 +10414,7 @@ export async function getRecursosAgrupadosPorConvenio(params: {
       ca.descricaoItem as descricaoProcedimento,
       ca.valorGlosa as valorGlosado,
       COALESCE(ca.valorRecurso, ca.valorGlosa) as valorCobrado,
-      '' as justificativa,
+      ${projetarJustificativaConciliacaoIssue182(params.estabelecimentoId)} as justificativa,
       ca.statusRecursoItem as status,
       ca.codigoGlosa as classificacaoGlosa,
       'conciliacao' as fonte,
@@ -10430,6 +10431,7 @@ export async function getRecursosAgrupadosPorConvenio(params: {
     ORDER BY ca.convenioId, ca.numeroGuia
   `));
 
+  exigirJustificativasConciliacaoIssue182(concRows, "justificativa");
   // Combinar ambas as fontes
   const demonstrativoRecursos = [...(demoRows as any[]), ...(concRows as any[])];
 
@@ -10737,7 +10739,7 @@ export async function getRecursosDoConvenio(params: {
       ca.descricaoItem as descricaoProcedimento,
       ca.valorGlosa as valorGlosado,
       COALESCE(ca.valorRecurso, ca.valorGlosa) as valorCobrado,
-      '' as justificativa,
+      ${projetarJustificativaConciliacaoIssue182(params.estabelecimentoId, params.convenioId)} as justificativa,
       ca.statusRecursoItem as status,
       ca.codigoGlosa as classificacaoGlosa,
       ca.dataExecucao as dataGlosa,
@@ -10754,6 +10756,7 @@ export async function getRecursosDoConvenio(params: {
     ORDER BY ca.numeroGuia, ca.codigoItem
   `));
 
+  exigirJustificativasConciliacaoIssue182(concRows, "justificativa");
   return [...(demoRows as any[]), ...(concRows as any[])];
 }
 
@@ -10819,7 +10822,7 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       d.sequencial_item AS sequencialItem,
       COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), '')) AS erroTiss,
       COALESCE(ca.codigoGlosa, d.codigo_glosa) AS motivoGlosaConvenio,
-      '' AS justificativaRecurso,
+      ${sql.raw(projetarJustificativaConciliacaoIssue182(lote.estabelecimentoId, lote.convenioId))} AS justificativaRecurso,
       ca.codigoItem AS codigoProcedimento,
       ca.descricaoItem AS descricaoProcedimento,
       ca.statusRecursoItem AS status,
@@ -10834,6 +10837,7 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
     ORDER BY ca.pacienteNome, ca.numeroGuia
   `);
 
+  exigirJustificativasConciliacaoIssue182(concItems, "justificativaRecurso");
   const recursosAntigos = await db
     .select()
     .from(recursosGlosa)
@@ -11182,16 +11186,18 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
   
   // Também buscar da conciliados_automatico (xmlRecursoLoteId = loteId)
   const [concRows] = await db.execute(sql.raw(`
-    SELECT id, numeroGuia as guiaNumero, codigoItem as codigoProcedimento,
-           descricaoItem as descricaoProcedimento, COALESCE(valorGlosa, 0) as valorGlosado,
-           COALESCE(valorRecurso, valorGlosa, 0) as valorRecursado,
-           motivoGlosa as motivoGlosaConvenio, '' as justificativaRecurso,
-           dataExecucao as dataGlosa, codigoGlosa as codigoGlosa
-    FROM conciliados_automatico
-    WHERE xmlRecursoLoteId = ${loteId}
-    ORDER BY numeroGuia, codigoItem
+    SELECT ca.id, ca.numeroGuia as guiaNumero, ca.codigoItem as codigoProcedimento,
+           ca.descricaoItem as descricaoProcedimento, COALESCE(ca.valorGlosa, 0) as valorGlosado,
+           COALESCE(ca.valorRecurso, ca.valorGlosa, 0) as valorRecursado,
+           ca.motivoGlosa as motivoGlosaConvenio,
+           ${projetarJustificativaConciliacaoIssue182(lote.estabelecimentoId, lote.convenioId)} as justificativaRecurso,
+           ca.dataExecucao as dataGlosa, ca.codigoGlosa as codigoGlosa
+    FROM conciliados_automatico ca
+    WHERE ca.xmlRecursoLoteId = ${loteId}
+    ORDER BY ca.numeroGuia, ca.codigoItem
   `));
 
+  exigirJustificativasConciliacaoIssue182(concRows, "justificativaRecurso");
   // Fallback: tentar buscar do sistema antigo (recursosGlosa)
   let recursosDoLote: any[] = [];
   const demoArray = (demoRows as any[]) || [];

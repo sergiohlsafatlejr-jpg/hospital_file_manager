@@ -2378,7 +2378,16 @@ function ConciliacaoCruzadaAtual() {
                                 )}
                               </div>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className="text-xs text-muted-foreground" title={
+                                item.statusAuditoriaContrato === 'indisponivel' || item.statusCobrancaContrato === 'auditoria_indisponivel'
+                                  ? 'Falha na auditoria contratual. Não representa ausência de tabela ou preço.'
+                                  : item.statusAuditoriaContrato === 'indeterminado' || item.statusCobrancaContrato === 'indeterminado'
+                                    ? 'Não há base temporal/preço aplicável autoritativo para este item. Nenhum valor foi estimado.'
+                                    : 'Sem preço contratual aplicável informado para este item.'
+                              }>{item.statusAuditoriaContrato === 'indisponivel' || item.statusCobrancaContrato === 'auditoria_indisponivel'
+                                  ? 'Auditoria indisponível'
+                                  : item.statusAuditoriaContrato === 'indeterminado' || item.statusCobrancaContrato === 'indeterminado'
+                                    ? 'Base indeterminada' : '—'}</span>
                             )}
                           </td>
                           <td className="p-2 text-right text-green-600">{formatarMoeda(Number(item.valorPago))}</td>

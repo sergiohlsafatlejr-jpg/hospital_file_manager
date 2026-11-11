@@ -8,6 +8,7 @@
 import { getDb, getRawPool } from "./db";
 import { sql } from "drizzle-orm";
 import { buscarPrecosPorItens, dataReferenciaUnica } from "./contratosPrecoAplicavel";
+import { enriquecerCobrancaContratualPorItem } from "./faturamentoDossieIssue182";
 import { registrarGlosaManualSegura, type RegistrarGlosaManualInput, type RegistrarGlosaManualResult } from "./glosaManualService";
 import {
   dataPagamentoDemonstrativoSchema,
@@ -1036,54 +1037,7 @@ export async function itensPorGuia(params: {
   const lista = (rows as unknown as any[]) || [];
   if (lista.length === 0) return lista;
 
-  try {
-    const precosMap = await buscarPrecosPorItens(
-      db,
-      params.estabelecimentoId,
-      lista.map(r => ({
-        id: Number(r.id),
-        convenioId: r.convenioId ? Number(r.convenioId) : null,
-        codigoProcedimento: r.codigoItem ?? null,
-        dataReferencia: dataReferenciaUnica(
-          r.dataExecucao ?? r.dataAtendimento ?? r.createdAt ?? new Date().toISOString().slice(0, 10)
-        ),
-      }))
-    );
-
-    for (const r of lista) {
-      const valorContratadoUnit = precosMap.get(Number(r.id)) ?? null;
-      const qtd = Math.max(1, Number(r.quantidade ?? 1));
-      const valorCobrado = Number(r.valorTotal ?? r.valorUnitario ?? 0);
-      const valorContratadoTotal =
-        valorContratadoUnit !== null ? Number((valorContratadoUnit * qtd).toFixed(2)) : null;
-      const diferenca =
-        valorContratadoTotal !== null ? Number((valorContratadoTotal - valorCobrado).toFixed(2)) : null;
-
-      let statusCobrancaContrato:
-        | "cobranca_menor_contrato"
-        | "cobranca_maior_contrato"
-        | "conforme_contrato"
-        | "sem_preco_tabela" = "sem_preco_tabela";
-      if (valorContratadoTotal !== null) {
-        if (valorCobrado + 0.05 < valorContratadoTotal) {
-          statusCobrancaContrato = "cobranca_menor_contrato";
-        } else if (valorCobrado > valorContratadoTotal + 0.05) {
-          statusCobrancaContrato = "cobranca_maior_contrato";
-        } else {
-          statusCobrancaContrato = "conforme_contrato";
-        }
-      }
-
-      r.valorContratadoTabela = valorContratadoUnit;
-      r.valorContratadoTotal = valorContratadoTotal;
-      r.diferencaContratoXml = diferenca;
-      r.statusCobrancaContrato = statusCobrancaContrato;
-    }
-  } catch {
-    // Se falhar o cruzamento contratual, preserva o retorno original de itens da guia
-  }
-
-  return lista;
+  return enriquecerCobrancaContratualPorItem(db, params.estabelecimentoId, lista);
 }
 
 /**

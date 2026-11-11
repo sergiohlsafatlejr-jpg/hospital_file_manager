@@ -67,6 +67,13 @@ export default function ContratosConvenios() {
   // Se "Todos os estabelecimentos" (id 0) estiver selecionado, pode-se usar undefined para o query ou forçar o padrão nas criações
   const estabelecimentoIdFiltro = estabelecimentoAtual?.id === 0 ? undefined : estabelecimentoAtual?.id;
   const estabelecimentoIdMutacao = estabelecimentoAtual?.id === 0 ? estabelecimentos?.[0]?.id : estabelecimentoAtual?.id;
+  const dossieEscopoAtual = JSON.stringify([estabelecimentoAtual?.id, busca, convenioSelecionado, statusSelecionado]);
+  const [dossieEscopoOrigem, setDossieEscopoOrigem] = useState<string | null>(null);
+  useEffect(() => {
+    setDossieModalAberto(false);
+    setDossieContratoId(null);
+    setDossieEscopoOrigem(null);
+  }, [dossieEscopoAtual]);
 
   useEffect(() => {
     setDocumentosContratoId(null);
@@ -209,6 +216,7 @@ export default function ContratosConvenios() {
   const abrirDossie = (contratoId: number, aba = "resumo") => {
     setDossieContratoId(contratoId);
     setDossieAbaInicial(aba);
+    setDossieEscopoOrigem(dossieEscopoAtual);
     setDossieModalAberto(true);
   };
 
@@ -863,16 +871,18 @@ export default function ContratosConvenios() {
         </DialogContent>
       </Dialog>
 
-      <ContratoDossieModal
+      {dossieModalAberto && dossieEscopoOrigem === dossieEscopoAtual && <ContratoDossieModal
+        key={`${dossieEscopoAtual}:${dossieContratoId}`}
+        escopo={dossieEscopoAtual}
         open={dossieModalAberto}
-        onOpenChange={setDossieModalAberto}
+        onOpenChange={value => { setDossieModalAberto(value); if (!value) { setDossieContratoId(null); setDossieEscopoOrigem(null); } }}
         contratoId={dossieContratoId}
         abaInicial={dossieAbaInicial}
         onAbrirDocumentoPdf={(docId) => {
           setDossieModalAberto(false);
           setDocumentoDetalheId(docId);
         }}
-      />
+      />}
     </div>
   );
 }
