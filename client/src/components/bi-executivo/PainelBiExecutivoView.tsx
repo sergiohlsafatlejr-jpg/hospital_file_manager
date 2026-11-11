@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -49,6 +49,8 @@ import {
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { obterRespostaBiAtual, vincularRespostaBi } from "@/lib/biExecutivoScope";
+import type { PainelBiExecutivoResponse } from "../../../../server/painelBiPersonalizadoService";
 
 const fmtMoeda = (v: number) =>
   Number(v || 0).toLocaleString("pt-BR", {
@@ -102,6 +104,18 @@ export interface PainelBiExecutivoViewProps {
 }
 
 export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps) {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  // A chave reinicia filtros, overrides e drafts/modais antes da primeira consulta
+  // de outro hospital/modo, sem setState durante render nem reset tardio em efeito.
+  return (
+    <PainelBiExecutivoEscopo
+      key={`${estabelecimentoAtual?.id ?? 0}:${modoFonte}`}
+      modoFonte={modoFonte}
+    />
+  );
+}
+
+function PainelBiExecutivoEscopo({ modoFonte }: PainelBiExecutivoViewProps) {
   const { estabelecimentoAtual, isGestor, temAcessoModulo } = useEstabelecimento();
   const { user } = useAuth();
   const podePersonalizar = user?.role === "admin" || isGestor;
@@ -125,17 +139,6 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
   const [telaCheia, setTelaCheia] = useState(false);
 
   const containerFullscreenRef = useRef<HTMLDivElement>(null);
-
-  // Resetar seleções ao trocar de estabelecimento
-  useEffect(() => {
-    setSetoresSel([]);
-    setCompetenciasSel([]);
-    setConveniosSel([]);
-    setCriterioXmlOverride(undefined);
-    setSubFonteBancoOverride(undefined);
-    setDimensaoSetorOverride(undefined);
-    setAbaAtiva("visao_geral");
-  }, [estabelecimentoId, modoFonte]);
 
   useEffect(() => {
     const onFsChange = () => {
@@ -168,14 +171,21 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
     ],
   );
 
+  const selecionarResposta = useCallback(
+    (resposta: PainelBiExecutivoResponse) => vincularRespostaBi(queryInput, resposta),
+    [queryInput],
+  );
+
   const query = trpc.painelBiPersonalizado.dados.useQuery(queryInput, {
     enabled: estabelecimentoId > 0,
-    placeholderData: (prev) => prev,
+    // Nem mesmo um default global pode reutilizar a resposta de outra chave.
+    placeholderData: undefined,
+    select: selecionarResposta,
     refetchInterval: BI_AUTO_REFRESH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
 
-  const data = query.data;
+  const data = obterRespostaBiAtual(queryInput, query.data, query);
   const config = data?.configCliente || DEFAULT_BI_CLIENT_CONFIG;
   const palette = useMemo(() => resolveBiThemePalette(config), [config]);
 
@@ -392,7 +402,7 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
   const abasHabilitadas = abasCatalogo.filter((a) => config.abasVisiveis.includes(a.id));
   const abaMetaAtual = abasHabilitadas.find((a) => a.id === abaAtiva) || abasHabilitadas[0] || abasCatalogo[0];
 
-  const nomeExibidoCliente = config.nomeExibicao || estabelecimentoAtual.nome;
+  const nomeExibidoCliente = config.nomeExibicao || data?.estabelecimento.nome || estabelecimentoAtual.nome;
   const criterioXmlAtivo = criterioXmlOverride || data?.fonteAtiva.criterioPeriodoXml || config.criterioPeriodoXmlPadrao;
 
   const gridKpiColsClass =
@@ -553,6 +563,7 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
                 size="sm"
                 className="h-8 text-xs border-amber-300 bg-amber-50/80 text-amber-900 hover:bg-amber-100 font-semibold"
                 onClick={() => setPersonalizarOpen(true)}
+                disabled={!data}
               >
                 <Sparkles className="h-3.5 w-3.5 mr-1.5 text-amber-600" />
                 Personalizar Cliente
@@ -621,7 +632,7 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
             {/* Marca do Cliente + Título + Seletor de Abas */}
             <div className="flex flex-wrap items-center gap-3 sm:gap-5">
               <div
-                onClick={() => podePersonalizar && setPersonalizarOpen(true)}
+                onClick={() => podePersonalizar && data && setPersonalizarOpen(true)}
                 title={
                   podePersonalizar
                     ? "Clique para personalizar a logomarca e cores deste hospital"
@@ -765,7 +776,7 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
 
           {/* CORPO PRINCIPAL DO DASHBOARD */}
           <main className="flex-1 p-3.5 sm:p-5 space-y-4">
-            {query.isLoading && !data ? (
+            {!data && !query.isError ? (
               <div className="flex min-h-[52vh] flex-col items-center justify-center gap-3 text-white">
                 <Loader2 className="h-9 w-9 animate-spin opacity-80" />
                 <p className="text-sm font-medium opacity-80">
@@ -1419,7 +1430,7 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
             </div>
 
             <div className="font-bold tracking-wider uppercase">
-              ATUALIZADO EM: {formatarDataHoraRodape(data?.fonteAtiva.atualizadoEm)}
+              ATUALIZADO EM: {data ? formatarDataHoraRodape(data.fonteAtiva.atualizadoEm) : "—"}
             </div>
 
             <div className="opacity-85 font-medium">
@@ -1430,12 +1441,12 @@ export function PainelBiExecutivoView({ modoFonte }: PainelBiExecutivoViewProps)
       </div>
 
       {/* MODAIS DE APOIO E PERSONALIZAÇÃO */}
-      {podePersonalizar && (
+      {podePersonalizar && data && (
         <BiPersonalizacaoDialog
           open={personalizarOpen}
           onOpenChange={setPersonalizarOpen}
           estabelecimentoId={estabelecimentoId}
-          estabelecimentoNome={estabelecimentoAtual.nome}
+          estabelecimentoNome={data.estabelecimento.nome}
           configAtual={config}
           onSaved={() => {
             void query.refetch();

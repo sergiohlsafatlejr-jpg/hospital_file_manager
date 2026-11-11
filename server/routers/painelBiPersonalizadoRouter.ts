@@ -46,13 +46,10 @@ export const painelBiPersonalizadoRouter = router({
     .query(async ({ input }) => {
       try {
         return await buscarDadosPainelBiExecutivo(input);
-      } catch (err: any) {
-        if (err?.message === "Estabelecimento não encontrado") {
-          throw new TRPCError({ code: "NOT_FOUND", message: err.message });
-        }
+      } catch {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: err?.message || "Erro ao carregar dados do Painel BI Executivo.",
+          message: "Não foi possível carregar o Painel BI Executivo. Nenhum dado anterior foi aplicado.",
         });
       }
     }),
@@ -60,7 +57,11 @@ export const painelBiPersonalizadoRouter = router({
   obterConfiguracao: relatorioBiProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive() }))
     .query(async ({ input }) => {
-      return obterConfiguracaoBiCliente(input.estabelecimentoId);
+      try {
+        return await obterConfiguracaoBiCliente(input.estabelecimentoId);
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível carregar a personalização deste estabelecimento." });
+      }
     }),
 
   salvarConfiguracao: protectedProcedure
@@ -72,20 +73,28 @@ export const painelBiPersonalizadoRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       await exigirPermissaoPersonalizar(ctx.user, input.estabelecimentoId);
-      const saved = await salvarConfiguracaoBiCliente({
-        estabelecimentoId: input.estabelecimentoId,
-        config: input.config,
-        userId: ctx.user.id,
-        userName: ctx.user.name || ctx.user.email || null,
-      });
-      return { success: true, config: saved };
+      try {
+        const saved = await salvarConfiguracaoBiCliente({
+          estabelecimentoId: input.estabelecimentoId,
+          config: input.config,
+          userId: ctx.user.id,
+          userName: ctx.user.name || ctx.user.email || null,
+        });
+        return { success: true, config: saved };
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível salvar a personalização deste estabelecimento." });
+      }
     }),
 
   resetarConfiguracao: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       await exigirPermissaoPersonalizar(ctx.user, input.estabelecimentoId);
-      const config = await resetarConfiguracaoBiCliente(input.estabelecimentoId);
-      return { success: true, config };
+      try {
+        const config = await resetarConfiguracaoBiCliente(input.estabelecimentoId);
+        return { success: true, config };
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível restaurar a personalização deste estabelecimento." });
+      }
     }),
 });

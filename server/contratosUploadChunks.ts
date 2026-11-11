@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { createReadStream, openAsBlob, promises as fs } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { and, eq, like, sql } from "drizzle-orm";
 import type { Request, Response, Router } from "express";
@@ -14,6 +17,13 @@ import {
   type ContratosUploadStatus, type ContratosUploadFinalizado,
 } from "../shared/contratosUploadProtocol";
 import type { ContratoConvenioPdfLeitura } from "./contratosConveniosPdfService";
+import {
+  criarLeitorContratoPdfArquivo, ContratoPdfArquivoError,
+  CONTRATOS_PDF_ARQUIVO_MAX_BYTES, CONTRATOS_PDF_ARQUIVO_MAX_PAGINAS,
+  CONTRATOS_PDF_ARQUIVO_MAX_TEXTO_BYTES, CONTRATOS_PDF_ARQUIVO_MAX_LINHAS,
+  CONTRATOS_PDF_ARQUIVO_TIMEOUT_MS, CONTRATOS_PDF_FILHO_MEMORIA_BYTES,
+  type ContratoPdfExecutor, type ContratoPdfArquivoCodigo,
+} from "./contratosPdfArquivo";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const token = () => randomBytes(24).toString("hex");
@@ -400,8 +410,8 @@ export function createContratosUploadRepository(getDatabase: () => Promise<Await
         if (duplicate) {
           const duplicateTs = new Date(duplicate.updatedAt ?? duplicate.createdAt).getTime();
           const isExpiredProcessing = duplicate.status === "processando" && duplicate.criadoPor === manifest.actorId && Number.isFinite(duplicateTs) && Date.now() - duplicateTs > CONTRATOS_UPLOAD_TTL_MS;
-          if (duplicate.status === "erro" || isExpiredProcessing) {
-            await tx.delete(documents).where(eq(documents.id, duplicate.id));
+          if (duplicate.criadoPor === manifest.actorId && (duplicate.status === "erro" || isExpiredProcessing)) {
+            await tx.delete(documents).where(and(eq(documents.id, duplicate.id), eq(documents.criadoPor, manifest.actorId), eq(documents.status, duplicate.status)));
           } else {
             fail(409, "Este PDF já está reservado ou anexado ao contrato. Retome sua sessão original.");
           }
@@ -504,37 +514,184 @@ export async function assertContratosUploadReady(byteLength: number): Promise<vo
   const service: PdfFileService = await import("./contratosConveniosPdfService");
   if (byteLength > CONTRATOS_UPLOAD_CHUNK_BYTES && !service.lerContratoPdfArquivo) fail(412, "Processamento PDF por arquivo ainda não está disponível para este tamanho.");
 }
-export async function processContratosUploadPdfFile(filePath: string, byteLength: number, signal?: AbortSignal): Promise<ContratoConvenioPdfLeitura> {
-  signal?.throwIfAborted();
-  const service: PdfFileService = await import("./contratosConveniosPdfService");
-  signal?.throwIfAborted();
-  if (service.lerContratoPdfArquivo) {
-    try {
-      return await service.lerContratoPdfArquivo(filePath, signal);
-    } catch (error) {
-      signal?.throwIfAborted();
-      const code = (error as { code?: string })?.code;
-      if (code === "PDF_ARQUIVO_INVALIDO" || code === "PDF_LIMITE_BYTES") {
-        fail(422, error instanceof Error ? error.message : "Arquivo PDF inválido.");
-      }
-      console.warn("[Contratos PDF] Extração Poppler indisponível ou incompleta; usando fallback:", (error as Error)?.message || error);
-      if (byteLength <= 64 * 1024 * 1024 && (await fs.stat(filePath)).size === byteLength) {
-        try {
-          const buffer = await fs.readFile(filePath, { signal });
-          signal?.throwIfAborted();
-          return await service.lerContratoPdf(buffer);
-        } catch (fallbackError) {
-          signal?.throwIfAborted();
-          console.warn("[Contratos PDF] Fallback pdf-parse falhou; marcando como ocr_necessario:", (fallbackError as Error)?.message || fallbackError);
-        }
-      }
-      return { paginas: 0, textoExtraido: "", pontosImportantes: [], status: "ocr_necessario" };
+// The pdf-parse wrapper swallows page failures and has no cancellation contract.
+// Reuse its installed PDF.js engine only in a resource-limited, killable child.
+// The existing file reader still owns admission, fd/inode validation, raw UTF-8,
+// page/text/line limits, normalization, point extraction and cumulative deadline.
+const PDF_FALLBACK_SCRIPT = String.raw`
+const fs = require('node:fs');
+const { once } = require('node:events');
+const [engine, tool, pageLimit, textLimit, lineLimit, inputLimit] = process.argv.slice(1);
+let diagnostic = false;
+console.log = console.warn = console.error = () => { diagnostic = true; };
+const reject = code => { const e = new Error(code); e.code = code; throw e; };
+(async () => {
+  let doc;
+  try {
+    const pdfjs = require(engine);
+    pdfjs.disableWorker = true;
+    const size = fs.fstatSync(3).size;
+    if (!Number.isSafeInteger(size) || size <= 0) reject('PDF_EXTRACAO_INCOMPLETA');
+    if (size > Number(inputLimit)) reject('PDF_LIMITE_BYTES');
+    const data = new Uint8Array(size);
+    for (let offset = 0; offset < size;) {
+      const read = fs.readSync(3, data, offset, size - offset, offset);
+      if (read <= 0) reject('PDF_EXTRACAO_INCOMPLETA');
+      offset += read;
     }
+    doc = await pdfjs.getDocument({ data,
+      isEvalSupported: false, disableFontFace: true });
+    const pages = doc.numPages;
+    if (!Number.isSafeInteger(pages) || pages <= 0) reject('PDF_EXTRACAO_INCOMPLETA');
+    if (pages > Number(pageLimit)) reject('PDF_LIMITE_PAGINAS');
+    if (tool === 'pdfinfo') {
+      if (diagnostic) reject('PDF_EXTRACAO_INCOMPLETA');
+      process.stdout.write('Pages: ' + pages + '\nEncrypted: no\n');
+      return;
+    }
+    let bytes = 0, lines = 1;
+    const emit = async text => {
+      bytes += Buffer.byteLength(text, 'utf8');
+      if (bytes > Number(textLimit)) reject('PDF_LIMITE_TEXTO');
+      for (const char of text) {
+        if ((char === '\n' || char === '\r' || char === '\f') && ++lines > Number(lineLimit)) reject('PDF_LIMITE_TEXTO');
+      }
+      if (!process.stdout.write(text)) await once(process.stdout, 'drain');
+    };
+    for (let i = 1; i <= pages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
+      if (!content || !Array.isArray(content.items)) reject('PDF_EXTRACAO_INCOMPLETA');
+      let lastY;
+      for (const item of content.items) {
+        if (typeof item.str !== 'string' || !Array.isArray(item.transform) || !Number.isFinite(item.transform[5])) reject('PDF_EXTRACAO_INCOMPLETA');
+        if (lastY !== undefined && lastY !== item.transform[5]) await emit('\n');
+        await emit(item.str);
+        lastY = item.transform[5];
+      }
+      await emit('\f');
+      if (diagnostic) reject('PDF_EXTRACAO_INCOMPLETA');
+      page.cleanup();
+    }
+  } finally { if (doc) await doc.destroy(); }
+})().catch(error => {
+  const code = error && ['PDF_LIMITE_BYTES', 'PDF_LIMITE_PAGINAS', 'PDF_LIMITE_TEXTO'].includes(error.code)
+    ? error.code : 'PDF_EXTRACAO_INCOMPLETA';
+  process.stderr.write(code);
+  process.exitCode = 1;
+});
+`;
+
+/** No Node parsing in the request process; settle only after child/pipes close. */
+export function criarExecutorContratosPdfFallback(deadline: number): ContratoPdfExecutor {
+  return comando => {
+    const ms = Math.floor(Math.min(comando.timeoutMs, deadline - performance.now()));
+    if (comando.signal?.aborted || ms <= 0) return Promise.reject(new ContratoPdfArquivoError("PDF_TEMPO_ESGOTADO", "Prazo de leitura do PDF esgotado."));
+    let engine: string;
+    try { engine = createRequire(import.meta.url).resolve("pdf-parse/lib/pdf.js/v1.10.100/build/pdf.js"); }
+    catch { return Promise.reject(new ContratoPdfArquivoError("PDF_PROCESSADOR_INDISPONIVEL", "Dependência do extrator PDF local indisponível.")); }
+    return new Promise((resolve, reject) => {
+      const child = spawn("/usr/bin/prlimit", [
+        `--as=${CONTRATOS_PDF_FILHO_MEMORIA_BYTES}`, `--cpu=${Math.max(1, Math.ceil(ms / 1000))}`, "--core=0", "--",
+        process.execPath, "--jitless", "--no-expose-wasm",
+        `--max-old-space-size=${Math.floor(CONTRATOS_PDF_FILHO_MEMORIA_BYTES / 2 / 1024 / 1024)}`,
+        "-e", PDF_FALLBACK_SCRIPT, engine, comando.ferramenta,
+        String(CONTRATOS_PDF_ARQUIVO_MAX_PAGINAS), String(CONTRATOS_PDF_ARQUIVO_MAX_TEXTO_BYTES), String(CONTRATOS_PDF_ARQUIVO_MAX_LINHAS), String(CONTRATOS_PDF_ARQUIVO_MAX_BYTES),
+      ], { shell: false, detached: false, stdio: ["ignore", "pipe", "pipe", comando.inputFd],
+        // Preserve host Node enforcement (e.g. the offline test guard), not app secrets.
+        env: { LANG: "C", LC_ALL: "C", NODE_OPTIONS: process.env.NODE_OPTIONS ?? "" } });
+      const output: Buffer[] = []; const diagnostics: Buffer[] = [];
+      let bytes = 0, diagnosticBytes = 0;
+      let failure: ContratoPdfArquivoError | undefined;
+      const stop = (code: ContratoPdfArquivoCodigo) => {
+        if (!failure) { failure = new ContratoPdfArquivoError(code, "Leitura PDF local não confirmada; nenhum resultado parcial foi aceito."); child.kill("SIGKILL"); }
+      };
+      const abort = () => stop("PDF_TEMPO_ESGOTADO");
+      comando.signal?.addEventListener("abort", abort, { once: true });
+      if (comando.signal?.aborted) abort();
+      const timer = setTimeout(abort, ms);
+      child.stdout!.on("data", (chunk: Buffer) => {
+        if (failure) return;
+        bytes += chunk.length;
+        if (bytes > comando.maxStdoutBytes) { stop(comando.ferramenta === "pdftotext" ? "PDF_LIMITE_TEXTO" : "PDF_LIMITE_SAIDA"); return; }
+        output.push(chunk);
+      });
+      child.stderr!.on("data", (chunk: Buffer) => {
+        if (failure) return;
+        diagnosticBytes += chunk.length;
+        // Protocol contains only an error code; reject larger diagnostics immediately.
+        if (diagnosticBytes > "PDF_PROCESSADOR_INDISPONIVEL".length) { stop("PDF_EXTRACAO_INCOMPLETA"); return; }
+        diagnostics.push(chunk);
+      });
+      child.stdout!.on("error", () => stop("PDF_EXTRACAO_INCOMPLETA"));
+      child.stderr!.on("error", () => stop("PDF_EXTRACAO_INCOMPLETA"));
+      child.on("error", () => stop("PDF_PROCESSADOR_INDISPONIVEL"));
+      child.on("close", (code, killed) => {
+        clearTimeout(timer);
+        comando.signal?.removeEventListener("abort", abort);
+        if (failure) { reject(failure); return; }
+        if (code !== 0 || killed || diagnosticBytes) {
+          const reported = Buffer.concat(diagnostics).toString("ascii");
+          const known = reported === "PDF_LIMITE_BYTES" || reported === "PDF_LIMITE_PAGINAS" || reported === "PDF_LIMITE_TEXTO";
+          reject(new ContratoPdfArquivoError(known ? reported : "PDF_EXTRACAO_INCOMPLETA", "Extração PDF integral não confirmada."));
+          return;
+        }
+        resolve({ stdout: Buffer.concat(output, bytes), stderr: Buffer.alloc(0) });
+      });
+    });
+  };
+}
+
+function validarLeituraContratosUpload(reading: ContratoConvenioPdfLeitura) {
+  if (!reading || !positiveInt(reading.paginas) || typeof reading.textoExtraido !== "string" || !Array.isArray(reading.pontosImportantes)
+    || reading.status !== (reading.textoExtraido.length >= 80 ? "concluido" : "ocr_necessario")) {
+    throw new ContratoPdfArquivoError("PDF_EXTRACAO_INCOMPLETA", "Resposta inválida do extrator PDF.");
   }
-  // Compatibility for small PDFs only. Never allocate a 150 MiB Buffer.
-  if (byteLength > CONTRATOS_UPLOAD_CHUNK_BYTES || (await fs.stat(filePath)).size !== byteLength) fail(412, "Processamento PDF por arquivo indisponível.");
-  signal?.throwIfAborted();
-  return service.lerContratoPdf(await fs.readFile(filePath, { signal }));
+  if (reading.paginas > CONTRATOS_PDF_ARQUIVO_MAX_PAGINAS) throw new ContratoPdfArquivoError("PDF_LIMITE_PAGINAS", "PDF excede o limite de páginas.");
+  if (Buffer.byteLength(reading.textoExtraido, "utf8") > CONTRATOS_PDF_ARQUIVO_MAX_TEXTO_BYTES) throw new ContratoPdfArquivoError("PDF_LIMITE_TEXTO", "PDF excede o limite de texto.");
+  let lines = 1;
+  for (const char of reading.textoExtraido) {
+    if ((char === "\n" || char === "\r" || char === "\f") && ++lines > CONTRATOS_PDF_ARQUIVO_MAX_LINHAS) throw new ContratoPdfArquivoError("PDF_LIMITE_TEXTO", "PDF excede o limite de linhas.");
+  }
+}
+
+export async function processContratosUploadPdfFile(filePath: string, byteLength: number, signal?: AbortSignal): Promise<ContratoConvenioPdfLeitura> {
+  const deadline = performance.now() + CONTRATOS_PDF_ARQUIVO_TIMEOUT_MS;
+  const check = () => {
+    signal?.throwIfAborted();
+    if (performance.now() >= deadline) throw new ContratoPdfArquivoError("PDF_TEMPO_ESGOTADO", "Prazo de leitura do PDF esgotado.");
+  };
+  check();
+  if (!positiveInt(byteLength) || byteLength > CONTRATOS_PDF_ARQUIVO_MAX_BYTES) throw new ContratoPdfArquivoError("PDF_LIMITE_BYTES", "Tamanho PDF fora do limite permitido.");
+  const original = await fs.lstat(filePath);
+  if (!original.isFile() || original.size !== byteLength) throw new ContratoPdfArquivoError("PDF_ARQUIVO_INVALIDO", "PDF local não corresponde ao tamanho declarado.");
+  const intact = async () => {
+    check();
+    const final = await fs.lstat(filePath);
+    if (!final.isFile() || final.dev !== original.dev || final.ino !== original.ino || final.size !== original.size || final.mtimeMs !== original.mtimeMs || final.ctimeMs !== original.ctimeMs) {
+      throw new ContratoPdfArquivoError("PDF_EXTRACAO_INCOMPLETA", "PDF alterado durante a leitura.");
+    }
+    check();
+  };
+  const service: PdfFileService = await import("./contratosConveniosPdfService");
+  check();
+  let reading: ContratoConvenioPdfLeitura;
+  try {
+    if (!service.lerContratoPdfArquivo) throw new ContratoPdfArquivoError("PDF_PROCESSADOR_INDISPONIVEL", "Extrator por arquivo indisponível.");
+    reading = await service.lerContratoPdfArquivo(filePath, signal);
+  } catch (error) {
+    check();
+    // Allowlist only legitimate extractor unavailability. Limits, busy, timeout,
+    // validation, integrity, cancellation and unknown failures retain identity.
+    if (!(error instanceof ContratoPdfArquivoError) || error.code !== "PDF_PROCESSADOR_INDISPONIVEL") throw error;
+    await intact();
+    reading = await criarLeitorContratoPdfArquivo({ normalizarTexto: service.normalizarTextoPdf, extrairPontos: service.extrairPontosImportantes,
+      executar: criarExecutorContratosPdfFallback(deadline) })(filePath, signal);
+  }
+  await intact();
+  validarLeituraContratosUpload(reading);
+  check();
+  return reading;
 }
 export async function sha256ContratosUploadFile(filePath: string): Promise<string> {
   const hash = createHash("sha256");
