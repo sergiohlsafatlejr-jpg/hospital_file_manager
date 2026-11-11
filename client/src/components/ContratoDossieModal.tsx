@@ -1,4 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { hashKey, useQueryClient } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
+import {
+  DOSSIE_STALE_TIME, MAX_GLOSAS_DOSSIE, consultaDossiePronta, cacheDossiePronto,
+  criarGuardaDossie, mensagemResultadoIA, contratoDossieProcessando,
+  iniciarProcessamentoDossie, assinarProcessamentoDossie,
+} from "@/lib/contratoDossieIssue182";
 import * as XLSX from "xlsx";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -46,6 +53,7 @@ interface ContratoDossieModalProps {
   onOpenChange: (open: boolean) => void;
   contratoId: number | null;
   abaInicial?: string;
+  escopo?: string;
   onAbrirDocumentoPdf?: (documentoId: number) => void;
 }
 
@@ -90,12 +98,18 @@ function formatCurrency(val: number | null | undefined): string {
   });
 }
 
-export function ContratoDossieModal({
+export function ContratoDossieModal(props: ContratoDossieModalProps) {
+  // Fechar/reabrir, trocar hospital/filtros/contrato reinicia abas e estado local.
+  return <ContratoDossieConteudo key={`${props.open}:${props.contratoId}:${props.escopo ?? ""}`} {...props} />;
+}
+
+function ContratoDossieConteudo({
   open,
   onOpenChange,
   contratoId,
   abaInicial = "resumo",
   onAbrirDocumentoPdf,
+  escopo = "",
 }: ContratoDossieModalProps) {
   const [, setLocation] = useLocation();
   const [abaAtiva, setAbaAtiva] = useState<string>(abaInicial);
@@ -105,14 +119,20 @@ export function ContratoDossieModal({
   const [loteXml, setLoteXml] = useState<string>("");
   const [filtroStatusXml, setFiltroStatusXml] = useState<string>("TODOS");
   const [competenciaGlosa, setCompetenciaGlosa] = useState<string>("");
-  const [filtroClassificacaoGlosa, setFiltroClassificacaoGlosa] = useState<string>("TODOS");
-  const [glosasSelecionadas, setGlosasSelecionadas] = useState<Record<string, boolean>>({});
+  const [filtroClassificacaoGlosa, setFiltroClassificacaoGlosaState] = useState<string>("TODOS");
+  const [selecao, setSelecao] = useState<{ identidade: number; itens: Record<string, boolean> }>({ identidade: 0, itens: {} });
+  const guarda = useRef(criarGuardaDossie()).current;
+  const queryClient = useQueryClient();
+  const processando = useSyncExternalStore(assinarProcessamentoDossie,
+    () => contratoDossieProcessando(contratoId), () => false);
+  useEffect(() => { guarda.ativar(); return () => guarda.desativar(); }, [guarda]);
+  useEffect(() => { if (open) setAbaAtiva(abaInicial); }, [open, abaInicial]);
 
   const utils = trpc.useUtils();
 
   const dossieQuery = trpc.contratosConvenios.obterDossie.useQuery(
     { contratoId: contratoId ?? 0 },
-    { enabled: open && Boolean(contratoId) }
+    { enabled: open && Boolean(contratoId), staleTime: DOSSIE_STALE_TIME }
   );
 
   const auditoriaXmlQuery = trpc.contratosConvenios.auditarCobrancaXml.useQuery(
@@ -123,7 +143,8 @@ export function ContratoDossieModal({
       limit: 300,
     },
     {
-      enabled: open && Boolean(contratoId) && (abaAtiva === "xml" || abaAtiva === "resumo"),
+      enabled: open && Boolean(contratoId),
+      staleTime: DOSSIE_STALE_TIME,
     }
   );
 
@@ -131,52 +152,115 @@ export function ContratoDossieModal({
     {
       contratoId: contratoId ?? 0,
       competencia: competenciaGlosa.trim() || undefined,
-      limit: 250,
+      limit: MAX_GLOSAS_DOSSIE,
     },
     {
-      enabled: open && Boolean(contratoId) && (abaAtiva === "glosas" || abaAtiva === "resumo"),
+      enabled: open && Boolean(contratoId),
+      staleTime: DOSSIE_STALE_TIME,
     }
   );
 
-  const gerarDossieIAMutation = trpc.contratosConvenios.gerarDossieIA.useMutation({
-    onSuccess: () => {
-      toast.success("Dossiê contratual enriquecido com IA e salvo com sucesso!");
-      utils.contratosConvenios.obterDossie.invalidate({ contratoId: contratoId ?? 0 });
-      utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: contratoId ?? 0 });
-      utils.contratosConvenios.obterContextoGlosa.invalidate();
-    },
-    onError: error => {
-      toast.error(error.message || "Falha ao analisar contrato com IA.");
-    },
-  });
+  const gerarDossieIAMutation = trpc.contratosConvenios.gerarDossieIA.useMutation();
+  const sincronizarTabelaMutation = trpc.contratosConvenios.sincronizarTabelaDossie.useMutation();
+  const aplicarFundamentacaoMutation = trpc.contratosConvenios.aplicarFundamentacaoGlosas.useMutation();
+  const xmlInput = { contratoId: contratoId ?? 0, competencia: competenciaXml.trim() || undefined,
+    loteXml: loteXml.trim() || undefined, limit: 300 };
+  const glosaInput = { contratoId: contratoId ?? 0, competencia: competenciaGlosa.trim() || undefined,
+    limit: MAX_GLOSAS_DOSSIE };
+  const dossieKey = getQueryKey(trpc.contratosConvenios.obterDossie, { contratoId: contratoId ?? 0 }, "query");
+  const xmlKey = getQueryKey(trpc.contratosConvenios.auditarCobrancaXml, xmlInput, "query");
+  const glosaKey = getQueryKey(trpc.contratosConvenios.auditarGlosasContrato, glosaInput, "query");
+  const dossiePronto = open && consultaDossiePronta(dossieQuery, contratoId);
+  const xmlPronto = dossiePronto && consultaDossiePronta(auditoriaXmlQuery, contratoId);
+  const glosasProntas = xmlPronto && consultaDossiePronta(auditoriaGlosasQuery, contratoId);
+  const identidade = guarda.atualizar(JSON.stringify([open, contratoId, escopo,
+    competenciaXml, loteXml, competenciaGlosa, filtroClassificacaoGlosa]),
+    auditoriaGlosasQuery.data, auditoriaGlosasQuery.dataUpdatedAt,
+    glosasProntas && !processando);
+  const glosasSelecionadas = selecao.identidade === identidade && glosasProntas ? selecao.itens : {};
+  const selecaoAtual = useRef(selecao);
+  selecaoAtual.current = selecao;
+  const setGlosasSelecionadas = (itens: Record<string, boolean>) => {
+    const nova = { identidade: guarda.identidade(), itens };
+    selecaoAtual.current = nova;
+    setSelecao(nova);
+  };
+  // Consulta ao cache no próprio clique: isFetching/isInvalidated podem mudar
+  // antes do próximo render/efeito. Nenhum handler antigo vence este guard.
+  const podeUsarBase = (id: number, incluirAuditorias = false) =>
+    guarda.atual(id) && open && !contratoDossieProcessando(contratoId) && dossiePronto &&
+    cacheDossiePronto(queryClient.getQueryState(dossieKey), dossieQuery.data) &&
+    (!incluirAuditorias || (xmlPronto && glosasProntas &&
+      cacheDossiePronto(queryClient.getQueryState(xmlKey), auditoriaXmlQuery.data) &&
+      cacheDossiePronto(queryClient.getQueryState(glosaKey), auditoriaGlosasQuery.data)));
+  const podeSelecionar = (id: number) => podeUsarBase(id, true) && glosasProntas &&
+    cacheDossiePronto(queryClient.getQueryState(glosaKey), auditoriaGlosasQuery.data);
+  // Limpa imediatamente a identidade ao observar fetch/error/invalidation,
+  // incluindo ciclos completos de refetch antes de um render React.
+  useEffect(() => queryClient.getQueryCache().subscribe(event => {
+    if ([dossieKey, xmlKey, glosaKey].some(key => hashKey(key) === hashKey(event.query.queryKey)) &&
+      (event.query.state.fetchStatus !== "idle" || event.query.state.status === "error" || event.query.state.isInvalidated)) {
+      guarda.invalidar();
+    }
+  }), [queryClient, guarda, hashKey(dossieKey), hashKey(xmlKey), hashKey(glosaKey)]);
 
-  const sincronizarTabelaMutation = trpc.contratosConvenios.sincronizarTabelaDossie.useMutation({
-    onSuccess: res => {
-      toast.success(
-        `Sincronização concluída: ${res.inseridos} preço(s) inserido(s) e ${res.atualizados} atualizado(s) na Tabela do Portal.`
-      );
-      utils.contratosConvenios.obterDossie.invalidate({ contratoId: contratoId ?? 0 });
-      utils.contratosConvenios.auditarCobrancaXml.invalidate();
-      utils.contratosConvenios.auditarGlosasContrato.invalidate();
-    },
-    onError: error => {
-      toast.error(error.message || "Falha ao sincronizar preços com a tabela do portal.");
-    },
-  });
-
-  const aplicarFundamentacaoMutation =
-    trpc.contratosConvenios.aplicarFundamentacaoGlosas.useMutation({
-      onSuccess: res => {
-        toast.success(
-          `Fundamentação contratual aplicada em ${res.atualizados} item(ns) de glosa!`
-        );
-        setGlosasSelecionadas({});
-        utils.contratosConvenios.auditarGlosasContrato.invalidate();
-      },
-      onError: error => {
-        toast.error(error.message || "Falha ao aplicar fundamentação contratual.");
-      },
-    });
+  const executarOperacao = async (tipo: "ia" | "tabela" | "glosas") => {
+    const id = identidade;
+    if (!contratoId || !(tipo === "glosas" ? podeSelecionar(id) : podeUsarBase(id))) return;
+    const selecionados = auditoriaGlosasQuery.data?.itens.filter(i => glosasSelecionadas[`${i.origem}:${i.id}`]) ?? [];
+    if (tipo === "glosas" && (selecionados.length === 0 || selecionados.length > MAX_GLOSAS_DOSSIE)) return;
+    const finalizar = iniciarProcessamentoDossie(contratoId);
+    if (!finalizar) return;
+    // Identidade de operação independente do render de isPending/processando.
+    const operacao = { contratoId, xmlInput, glosaInput, identidade: operacaoAtual.current };
+    const aindaAtual = () => operacaoAtual.current === operacao.identidade && montado.current;
+    setGlosasSelecionadas({});
+    try {
+      if (tipo === "ia") {
+        const resultado = await gerarDossieIAMutation.mutateAsync({ contratoId: operacao.contratoId });
+        if (aindaAtual()) {
+          const mensagem = mensagemResultadoIA(resultado);
+          if (mensagem.sucesso) toast.success(mensagem.texto); else toast.warning(mensagem.texto);
+        }
+        if (resultado.salvo) {
+          void utils.contratosConvenios.obterDossie.invalidate({ contratoId: operacao.contratoId });
+          void utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: operacao.contratoId });
+          // A base muda por contrato, não somente pela competência/lote aberto.
+          void utils.contratosConvenios.auditarCobrancaXml.invalidate({ contratoId: operacao.contratoId });
+          void utils.contratosConvenios.auditarGlosasContrato.invalidate({ contratoId: operacao.contratoId });
+        }
+      } else if (tipo === "tabela") {
+        const res = await sincronizarTabelaMutation.mutateAsync({ contratoId: operacao.contratoId });
+        if (aindaAtual()) toast.success(`Sincronização concluída: ${res.inseridos} preço(s) inserido(s) e ${res.atualizados} atualizado(s) na Tabela do Portal.`);
+        void utils.contratosConvenios.obterDossie.invalidate({ contratoId: operacao.contratoId });
+        void utils.contratosConvenios.auditarCobrancaXml.invalidate({ contratoId: operacao.contratoId });
+        void utils.contratosConvenios.auditarGlosasContrato.invalidate({ contratoId: operacao.contratoId });
+      } else {
+        const res = await aplicarFundamentacaoMutation.mutateAsync({ contratoId: operacao.contratoId,
+          itens: selecionados.map(i => ({ id: i.id, origem: i.origem,
+            justificativa: i.justificativaContratualSugerida, valorRecurso: i.valorRecursoSugerido })) });
+        if (aindaAtual()) toast.success(`Fundamentação contratual aplicada em ${res.atualizados} item(ns) de glosa!`);
+        void utils.contratosConvenios.auditarGlosasContrato.invalidate({ contratoId: operacao.contratoId });
+      }
+    } catch (error) {
+      if (aindaAtual()) toast.error(error instanceof Error ? error.message : "Falha na operação contratual.");
+    } finally { finalizar(); }
+  };
+  const chaveOperacao = JSON.stringify([open, contratoId, escopo, competenciaXml, loteXml,
+    competenciaGlosa, filtroClassificacaoGlosa]);
+  const operacaoAtual = useRef({ escopo: chaveOperacao });
+  if (operacaoAtual.current.escopo !== chaveOperacao) operacaoAtual.current = { escopo: chaveOperacao };
+  const invalidarInteracao = () => {
+    guarda.invalidar();
+    operacaoAtual.current = { escopo: chaveOperacao };
+    setGlosasSelecionadas({});
+  };
+  const setFiltroClassificacaoGlosa = (valor: string | ((atual: string) => string)) => {
+    invalidarInteracao();
+    setFiltroClassificacaoGlosaState(valor);
+  };
+  const montado = useRef(true);
+  useEffect(() => { montado.current = true; return () => { montado.current = false; }; }, []);
 
   const dossie = dossieQuery.data;
 
@@ -211,7 +295,7 @@ export function ContratoDossieModal({
   }, [auditoriaGlosasQuery.data, filtroClassificacaoGlosa]);
 
   const exportarExcelConsultoria = () => {
-    if (!dossie) return;
+    if (!dossie || !podeUsarBase(identidade, true)) return;
     const wb = XLSX.utils.book_new();
 
     // Aba 1: Resumo e Pontos Críticos
@@ -349,44 +433,32 @@ export function ContratoDossieModal({
   };
 
   const toggleSelecionarGlosa = (chave: string, checked: boolean) => {
-    setGlosasSelecionadas(prev => ({ ...prev, [chave]: checked }));
+    if (!podeSelecionar(identidade)) return;
+    const atuais = selecaoAtual.current.identidade === identidade ? selecaoAtual.current.itens : {};
+    if (checked && !atuais[chave] && Object.values(atuais).filter(Boolean).length >= MAX_GLOSAS_DOSSIE) {
+      toast.warning(`Selecione no máximo ${MAX_GLOSAS_DOSSIE} glosas por aplicação.`);
+      return;
+    }
+    setGlosasSelecionadas({ ...atuais, [chave]: checked });
   };
 
   const selecionarTodasGlosasContestaveis = () => {
+    if (!podeSelecionar(identidade)) return;
     const contestaveis = itensGlosaFiltrados.filter(
       i => i.classificacaoContrato !== "ajuste_contratual_legitimo" && i.valorRecursoSugerido > 0
-    );
+    ).slice(0, MAX_GLOSAS_DOSSIE);
     const novo: Record<string, boolean> = {};
-    for (const item of contestaveis) {
-      novo[`${item.origem}:${item.id}`] = true;
-    }
+    for (const item of contestaveis) novo[`${item.origem}:${item.id}`] = true;
     setGlosasSelecionadas(novo);
-  };
-
-  const aplicarFundamentacaoSelecionadas = () => {
-    if (!contratoId || !auditoriaGlosasQuery.data) return;
-    const selecionados = auditoriaGlosasQuery.data.itens.filter(
-      i => glosasSelecionadas[`${i.origem}:${i.id}`]
-    );
-    if (selecionados.length === 0) {
-      toast.warning("Selecione ao menos uma glosa para aplicar a fundamentação contratual.");
-      return;
-    }
-    aplicarFundamentacaoMutation.mutate({
-      contratoId,
-      itens: selecionados.map(i => ({
-        id: i.id,
-        origem: i.origem,
-        justificativa: i.justificativaContratualSugerida,
-        valorRecurso: i.valorRecursoSugerido,
-      })),
-    });
   };
 
   const qtdGlosasSelecionadas = Object.values(glosasSelecionadas).filter(Boolean).length;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={value => {
+      if (!value) { guarda.invalidar(); montado.current = false; setGlosasSelecionadas({}); }
+      onOpenChange(value);
+    }}>
       <DialogContent className="sm:max-w-[96vw] max-w-[96vw] w-[1440px] max-h-[92vh] overflow-y-auto p-0">
         {/* Header fixo estilo Dossiê Executivo */}
         <div className="sticky top-0 z-20 bg-slate-900 text-white px-6 py-4 border-b border-slate-800">
@@ -423,8 +495,8 @@ export function ContratoDossieModal({
                   size="sm"
                   variant="secondary"
                   className="bg-indigo-600 hover:bg-indigo-500 text-white border-0"
-                  disabled={!contratoId || gerarDossieIAMutation.isPending}
-                  onClick={() => contratoId && gerarDossieIAMutation.mutate({ contratoId })}
+                  disabled={!dossiePronto || processando}
+                  onClick={() => void executarOperacao("ia")}
                 >
                   {gerarDossieIAMutation.isPending ? (
                     <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -438,7 +510,7 @@ export function ContratoDossieModal({
                   size="sm"
                   variant="outline"
                   className="bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-600"
-                  disabled={!dossie}
+                  disabled={!xmlPronto || !glosasProntas || processando}
                   onClick={exportarExcelConsultoria}
                 >
                   <FileSpreadsheet className="h-4 w-4 mr-1.5" />
@@ -450,6 +522,27 @@ export function ContratoDossieModal({
         </div>
 
         <div className="p-6">
+          {[dossieQuery, auditoriaXmlQuery, auditoriaGlosasQuery].some(q => q.isError) && (
+            <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              Falha ao atualizar dossiê/auditoria. Dados em cache não estão autorizados para aplicação ou exportação.
+              {[dossieQuery, auditoriaXmlQuery, auditoriaGlosasQuery].filter(q => q.isError).map((q, i) => <p key={i}>{q.error?.message}</p>)}
+            </div>
+          )}
+          {(!dossiePronto || !xmlPronto || !glosasProntas || processando) && dossie && (
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p role="status" className="text-xs text-amber-800">Base em atualização, desatualizada ou operação em processamento. Aplicação e exportação bloqueadas até revalidação.</p>
+              <Button size="sm" variant="outline"
+                disabled={processando || dossieQuery.isFetching || auditoriaXmlQuery.isFetching || auditoriaGlosasQuery.isFetching}
+                onClick={() => {
+                  invalidarInteracao();
+                  void dossieQuery.refetch();
+                  void auditoriaXmlQuery.refetch();
+                  void auditoriaGlosasQuery.refetch();
+                }}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Revalidar base
+              </Button>
+            </div>
+          )}
           {dossieQuery.isLoading ? (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -908,10 +1001,8 @@ export function ContratoDossieModal({
                         <Button
                           size="sm"
                           className="bg-emerald-600 hover:bg-emerald-500 text-white"
-                          disabled={!contratoId || sincronizarTabelaMutation.isPending}
-                          onClick={() =>
-                            contratoId && sincronizarTabelaMutation.mutate({ contratoId })
-                          }
+                          disabled={!dossiePronto || processando}
+                          onClick={() => void executarOperacao("tabela")}
                         >
                           {sincronizarTabelaMutation.isPending ? (
                             <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -983,19 +1074,20 @@ export function ContratoDossieModal({
                         <Input
                           placeholder="Competência (ex: 2026-03)"
                           value={competenciaXml}
-                          onChange={e => setCompetenciaXml(e.target.value)}
+                          onChange={e => { invalidarInteracao(); setCompetenciaXml(e.target.value); }}
                           className="w-44 h-9 text-xs"
                         />
                         <Input
                           placeholder="Lote XML (opcional)"
                           value={loteXml}
-                          onChange={e => setLoteXml(e.target.value)}
+                          onChange={e => { invalidarInteracao(); setLoteXml(e.target.value); }}
                           className="w-40 h-9 text-xs"
                         />
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => auditoriaXmlQuery.refetch()}
+                          disabled={auditoriaXmlQuery.isFetching || processando}
+                          onClick={() => { guarda.invalidar(); void auditoriaXmlQuery.refetch(); }}
                         >
                           <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                           Recalcular
@@ -1297,7 +1389,7 @@ export function ContratoDossieModal({
                         <Input
                           placeholder="Competência (ex: 2026-03)"
                           value={competenciaGlosa}
-                          onChange={e => setCompetenciaGlosa(e.target.value)}
+                          onChange={e => { invalidarInteracao(); setCompetenciaGlosa(e.target.value); }}
                           className="w-44 h-9 text-xs"
                         />
                         <Button
@@ -1458,18 +1550,18 @@ export function ContratoDossieModal({
                             <Button
                               size="sm"
                               variant="outline"
+                              disabled={!glosasProntas || processando}
                               onClick={selecionarTodasGlosasContestaveis}
                             >
-                              Selecionar Contestáveis
+                              Selecionar Contestáveis (máx. 200)
                             </Button>
                             <Button
                               size="sm"
                               className="bg-purple-600 hover:bg-purple-500 text-white"
                               disabled={
-                                qtdGlosasSelecionadas === 0 ||
-                                aplicarFundamentacaoMutation.isPending
+                                qtdGlosasSelecionadas === 0 || !glosasProntas || processando
                               }
-                              onClick={aplicarFundamentacaoSelecionadas}
+                              onClick={() => void executarOperacao("glosas")}
                             >
                               {aplicarFundamentacaoMutation.isPending ? (
                                 <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -1511,6 +1603,7 @@ export function ContratoDossieModal({
                                     <TableRow key={chave}>
                                       <TableCell>
                                         <Checkbox
+                                          disabled={!glosasProntas || processando}
                                           checked={Boolean(glosasSelecionadas[chave])}
                                           onCheckedChange={v =>
                                             toggleSelecionarGlosa(chave, Boolean(v))

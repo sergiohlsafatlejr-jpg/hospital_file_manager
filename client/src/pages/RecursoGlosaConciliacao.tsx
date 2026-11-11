@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
@@ -16,6 +16,7 @@ import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, A
 import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 import { ContratoDossieModal } from "@/components/ContratoDossieModal";
+import { AVISO_CONTEXTO_INDETERMINADO, DOSSIE_STALE_TIME } from "@/lib/contratoDossieIssue182";
 
 function formatarMoeda(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -75,19 +76,27 @@ export default function RecursoGlosaConciliacao() {
     { enabled: !!estabelecimentoAtual?.id }
   );
 
-  const dataReferenciaHoje = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [dossieModalAberto, setDossieModalAberto] = useState(false);
   const [dossieContratoId, setDossieContratoId] = useState<number | null>(null);
+  const dossieEscopoAtual = JSON.stringify([estabelecimentoAtual?.id, competencia, dataPagto, convenioFiltro, agrupamento, busca, apenasNaoRecursados]);
+  const [dossieEscopoOrigem, setDossieEscopoOrigem] = useState<string | null>(null);
+  useEffect(() => {
+    setDossieModalAberto(false);
+    setDossieContratoId(null);
+    setDossieEscopoOrigem(null);
+  }, [dossieEscopoAtual]);
   const [dossieAbaInicial, setDossieAbaInicial] = useState<string>("glosas");
 
-  const { data: contextoContratual } = trpc.contratosConvenios.obterContextoGlosa.useQuery(
+  const contextoContratualQuery = trpc.contratosConvenios.obterContextoGlosa.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || 0,
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
-      dataReferencia: dataReferenciaHoje,
     },
-    { enabled: !!estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 }
+    { enabled: !!estabelecimentoAtual?.id && estabelecimentoAtual.id > 0, staleTime: DOSSIE_STALE_TIME }
   );
+
+  const contextoContratual = !contextoContratualQuery.isFetching && !contextoContratualQuery.isError &&
+    !contextoContratualQuery.isStale ? contextoContratualQuery.data : undefined;
 
   const { data: itensGlosados, isLoading, refetch } = trpc.faturamentoUnificado.itensGlosadosParaRecurso.useQuery(
     {
@@ -536,9 +545,9 @@ export default function RecursoGlosaConciliacao() {
               <FileCode className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
               <div className="text-xs">
                 <span className="font-semibold text-blue-900 dark:text-blue-200">
-                  Base Contratual Integrada à IA de Recursos:
+                  Contexto contratual do recurso:
                 </span>{" "}
-                {contextoContratual.possuiContratoAtivo ? (
+                {contextoContratual.possuiContratoAtivo && contextoContratual.dataReferencia ? (
                   <span className="text-blue-800 dark:text-blue-300">
                     {contextoContratual.contratos.length} contrato(s) ativo(s) (
                     {contextoContratual.contratos.map((c: any) => `${c.convenioNome}${c.numeroContrato ? ` #${c.numeroContrato}` : ""}`).join(", ")})
@@ -548,13 +557,13 @@ export default function RecursoGlosaConciliacao() {
                   </span>
                 ) : (
                   <span className="text-muted-foreground">
-                    Nenhum contrato ou PDF contratual localizado para o filtro atual. Cadastre/importe o PDF em Contratos x Convênios para fundamentar os recursos automaticamente.
+                    {AVISO_CONTEXTO_INDETERMINADO}
                   </span>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              {contextoContratual.contratos?.[0]?.id && (
+              {contextoContratual.dataReferencia && contextoContratual.contratos?.[0]?.id && (
                 <>
                   <Button
                     size="sm"
@@ -563,6 +572,7 @@ export default function RecursoGlosaConciliacao() {
                     onClick={() => {
                       setDossieContratoId(contextoContratual.contratos[0].id);
                       setDossieAbaInicial("resumo");
+                      setDossieEscopoOrigem(dossieEscopoAtual);
                       setDossieModalAberto(true);
                     }}
                   >
@@ -575,6 +585,7 @@ export default function RecursoGlosaConciliacao() {
                     onClick={() => {
                       setDossieContratoId(contextoContratual.contratos[0].id);
                       setDossieAbaInicial("glosas");
+                      setDossieEscopoOrigem(dossieEscopoAtual);
                       setDossieModalAberto(true);
                     }}
                   >
@@ -1484,12 +1495,14 @@ export default function RecursoGlosaConciliacao() {
         </DialogContent>
       </Dialog>
 
-      <ContratoDossieModal
+      {dossieModalAberto && dossieEscopoOrigem === dossieEscopoAtual && <ContratoDossieModal
+        key={`${dossieEscopoAtual}:${dossieContratoId}`}
+        escopo={dossieEscopoAtual}
         open={dossieModalAberto}
-        onOpenChange={setDossieModalAberto}
+        onOpenChange={value => { setDossieModalAberto(value); if (!value) { setDossieContratoId(null); setDossieEscopoOrigem(null); } }}
         contratoId={dossieContratoId}
         abaInicial={dossieAbaInicial}
-      />
+      />}
     </DashboardLayout>
   );
 }

@@ -30,6 +30,7 @@ const columns = {
   demonstrativo: ["id", "estabelecimentoId", "convenio_id", "numero_guia", "codigo_item", "data_execucao", "sequencial_item", "protocolo", "erro_tiss", "codigo_glosa", "recurso_id", "nome_beneficiario", "carteira_beneficiario", "descricao_item", "valor_glosa", "valor_recurso", "valor_pago", "data_pagamento", "data_referencia", "recurso_status", "justificativa_recurso", "quantidade"],
   faturamento_unificado: ["id", "estabelecimentoId", "convenioId", "numeroGuia", "codigoItem", "dataExecucao", "origemSistema", "origemId", "protocolo"],
   faturamento_tiss: ["id", "estabelecimentoId", "convenioId", "numero_guia_prestador", "numero_guia_operadora", "codigo_item", "data_execucao", "sequencial_item"],
+  recursos_glosa_justificativas: ["id", "conciliadoId", "justificativa"],
 };
 type Fixtures = Partial<Record<keyof typeof columns, Row[]>>;
 
@@ -104,7 +105,12 @@ function mockSqlDb(fixtures: Fixtures, exportacao = false) {
       }
       const params: Array<string | number | bigint | null> = [];
       const ctes = Object.entries(columns).map(([table, names]) => {
-        const rows = fixtures[table as keyof Fixtures] ?? [];
+        // A exportação agora lê a fundamentação persistida. Continua sendo CTE
+        // em memória, sem DDL; não mudar as provas de vínculo/valores da Issue163.
+        const rows: Row[] = fixtures[table as keyof Fixtures] ?? (table === "recursos_glosa_justificativas"
+          ? (fixtures.conciliados_automatico ?? []).map((row, index) => ({
+            id: index + 1, conciliadoId: row.id, justificativa: `Fundamentação fictícia do item ${row.id}`,
+          })) : []);
         const values = rows.length
           ? "VALUES " + rows.map(row => {
             params.push(...names.map(name => {

@@ -24,6 +24,7 @@ import {
   sincronizarTabelaValoresDossie,
 } from "../contratosConveniosDossieService";
 
+import { operacaoDossieSegura } from "../contratosDossieIssue182Integridade";
 function dbObrigatorio(db: Awaited<ReturnType<typeof getDb>>) {
   if (!db)
     throw new TRPCError({
@@ -227,12 +228,25 @@ export const contratosConveniosRouter = router({
         convenioId: z.number().int().positive().optional(),
         convenioNome: z.string().optional(),
         codigosProcedimento: z.array(z.string()).max(40).optional(),
-        dataReferencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        dataReferencia: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
       })
     )
     .query(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para consultar contratos desta unidade." });
+      if (
+        ctx.user.role !== "admin" &&
+        !(await verificarPermissaoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        ))
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Sem permissão para consultar contratos desta unidade.",
+        });
       }
       return obterContextoContratualParaGlosa(input);
     }),
@@ -268,11 +282,13 @@ export const contratosConveniosRouter = router({
 
   obterDossie: protectedProcedure
     .input(z.object({ contratoId: z.number().int().positive() }))
-    .query(async ({ ctx, input }) => {
-      const db = dbObrigatorio(await getDb());
-      await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
-      return obterDossieContratual(input.contratoId);
-    }),
+    .query(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        const db = dbObrigatorio(await getDb());
+        await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
+        return obterDossieContratual(input.contratoId);
+      })
+    ),
 
   obterDossiePorConvenio: protectedProcedure
     .input(
@@ -281,56 +297,65 @@ export const contratosConveniosRouter = router({
         convenioId: z.number().int().positive().optional(),
       })
     )
-    .query(async ({ ctx, input }) => {
-      if (
-        ctx.user.role !== "admin" &&
-        !(await verificarPermissaoEstabelecimento(
-          ctx.user.id,
-          input.estabelecimentoId,
-          "visualizar"
-        ))
-      ) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Sem permissão para consultar contratos desta unidade.",
-        });
-      }
-      const db = dbObrigatorio(await getDb());
-      const conds = [
-        eq(contratosConvenios.estabelecimentoId, input.estabelecimentoId),
-      ];
-      if (input.convenioId) {
-        conds.push(eq(contratosConvenios.convenioId, input.convenioId));
-      }
-      const contratos = await db
-        .select()
-        .from(contratosConvenios)
-        .where(and(...conds))
-        .orderBy(desc(contratosConvenios.createdAt))
-        .limit(10);
-      if (contratos.length === 0) return null;
-      const escolhido =
-        contratos.find(
-          c => c.status === "ativo" || c.status === "vencendo" || c.status === "renovado"
-        ) ?? contratos[0];
-      return obterDossieContratual(escolhido.id);
-    }),
+    .query(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        if (
+          ctx.user.role !== "admin" &&
+          !(await verificarPermissaoEstabelecimento(
+            ctx.user.id,
+            input.estabelecimentoId,
+            "visualizar"
+          ))
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Sem permissão para consultar contratos desta unidade.",
+          });
+        }
+        const db = dbObrigatorio(await getDb());
+        const conds = [
+          eq(contratosConvenios.estabelecimentoId, input.estabelecimentoId),
+        ];
+        if (input.convenioId) {
+          conds.push(eq(contratosConvenios.convenioId, input.convenioId));
+        }
+        const contratos = await db
+          .select()
+          .from(contratosConvenios)
+          .where(and(...conds))
+          .orderBy(desc(contratosConvenios.createdAt))
+          .limit(10);
+        if (contratos.length === 0) return null;
+        const escolhido =
+          contratos.find(
+            c =>
+              c.status === "ativo" ||
+              c.status === "vencendo" ||
+              c.status === "renovado"
+          ) ?? contratos[0];
+        return obterDossieContratual(escolhido.id);
+      })
+    ),
 
   gerarDossieIA: protectedProcedure
     .input(z.object({ contratoId: z.number().int().positive() }))
-    .mutation(async ({ ctx, input }) => {
-      const db = dbObrigatorio(await getDb());
-      await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
-      return gerarDossieContratualComIA(input.contratoId);
-    }),
+    .mutation(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        const db = dbObrigatorio(await getDb());
+        await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+        return gerarDossieContratualComIA(input.contratoId);
+      })
+    ),
 
   sincronizarTabelaDossie: protectedProcedure
     .input(z.object({ contratoId: z.number().int().positive() }))
-    .mutation(async ({ ctx, input }) => {
-      const db = dbObrigatorio(await getDb());
-      await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
-      return sincronizarTabelaValoresDossie({ contratoId: input.contratoId });
-    }),
+    .mutation(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        const db = dbObrigatorio(await getDb());
+        await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+        return sincronizarTabelaValoresDossie({ contratoId: input.contratoId });
+      })
+    ),
 
   auditarCobrancaXml: protectedProcedure
     .input(
@@ -341,11 +366,13 @@ export const contratosConveniosRouter = router({
         limit: z.number().int().min(10).max(500).optional(),
       })
     )
-    .query(async ({ ctx, input }) => {
-      const db = dbObrigatorio(await getDb());
-      await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
-      return auditarCobrancaXmlPorContrato(input);
-    }),
+    .query(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        const db = dbObrigatorio(await getDb());
+        await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
+        return auditarCobrancaXmlPorContrato(input);
+      })
+    ),
 
   auditarGlosasContrato: protectedProcedure
     .input(
@@ -355,11 +382,13 @@ export const contratosConveniosRouter = router({
         limit: z.number().int().min(10).max(400).optional(),
       })
     )
-    .query(async ({ ctx, input }) => {
-      const db = dbObrigatorio(await getDb());
-      await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
-      return auditarGlosasPorContrato(input);
-    }),
+    .query(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        const db = dbObrigatorio(await getDb());
+        await contratoAutorizado(db, ctx.user, input.contratoId, "visualizar");
+        return auditarGlosasPorContrato(input);
+      })
+    ),
 
   aplicarFundamentacaoGlosas: protectedProcedure
     .input(
@@ -377,11 +406,13 @@ export const contratosConveniosRouter = router({
           .max(200),
       })
     )
-    .mutation(async ({ ctx, input }) => {
-      const db = dbObrigatorio(await getDb());
-      await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
-      return aplicarFundamentacaoContratualGlosas(input);
-    }),
+    .mutation(async ({ ctx, input }) =>
+      operacaoDossieSegura(async () => {
+        const db = dbObrigatorio(await getDb());
+        await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+        return aplicarFundamentacaoContratualGlosas(input);
+      })
+    ),
 
   criar: protectedProcedure
     .input(
