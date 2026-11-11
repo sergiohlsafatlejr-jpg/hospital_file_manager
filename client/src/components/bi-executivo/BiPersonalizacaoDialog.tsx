@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +56,11 @@ import {
   type EstiloLayoutLogoBi,
   type PaletaExtraidaLogo,
 } from "@/lib/biLogoColorExtractor";
+import {
+  awaitBiLogoOperation,
+  createBiLogoOperationOwner,
+  type BiLogoOperationToken,
+} from "@/lib/biLogoOperation";
 
 interface BiPersonalizacaoDialogProps {
   open: boolean;
@@ -117,56 +122,140 @@ export function BiPersonalizacaoDialog({
   configAtual,
   onSaved,
 }: BiPersonalizacaoDialogProps) {
-  const [draft, setDraft] = useState<BiClientConfig>(configAtual);
+  const [draft, setDraftState] = useState<BiClientConfig>(configAtual);
+  const draftRef = useRef(configAtual);
+  // Handlers may run before React commits a batched update; saving reads this snapshot.
+  const setDraft = (update: React.SetStateAction<BiClientConfig>) => {
+    const next =
+      typeof update === "function" ? update(draftRef.current) : update;
+    draftRef.current = next;
+    setDraftState(next);
+  };
   const [autoCoresPelaLogo, setAutoCoresPelaLogo] = useState(true);
   const [estiloLayoutLogo, setEstiloLayoutLogo] =
     useState<EstiloLayoutLogoBi>("executivo_escuro");
   const [paletaLogo, setPaletaLogo] = useState<PaletaExtraidaLogo | null>(null);
   const [extraindoCoresLogo, setExtraindoCoresLogo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const operations = useMemo(createBiLogoOperationOwner, []);
+  const preferences = useRef({
+    auto: true,
+    estilo: estiloLayoutLogo,
+    themeRevision: 0,
+  });
 
   const previewPalette = useMemo(() => resolveBiThemePalette(draft), [draft]);
 
-  useEffect(() => {
+  const utils = trpc.useUtils();
+  const salvarMut = trpc.painelBiPersonalizado.salvarConfiguracao.useMutation();
+  const resetarMut =
+    trpc.painelBiPersonalizado.resetarConfiguracao.useMutation();
+  const persistindo = salvarMut.isPending || resetarMut.isPending;
+
+  const invalidarLogo = () => {
+    operations.invalidate();
+    setExtraindoCoresLogo(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+  const finalizarLogo = (token: BiLogoOperationToken) => {
+    if (!operations.finish(token)) return;
+    setExtraindoCoresLogo(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // Invalidate before promise continuations can write into a closed/new scope.
+  // Real consumers also remount by hospital:fonte; this is defensive lifecycle handling.
+  useLayoutEffect(() => {
+    invalidarLogo();
+    setPaletaLogo(null);
     if (open) {
       setDraft(configAtual);
       if (configAtual.logoUrl) {
-        extrairCoresDeLogoDataUrl(configAtual.logoUrl)
-          .then((res) => setPaletaLogo(res))
-          .catch(() => setPaletaLogo(null));
-      } else {
-        setPaletaLogo(null);
+        const token = operations.begin(
+          estabelecimentoId,
+          configAtual.logoUrl,
+          "palette",
+        );
+        setExtraindoCoresLogo(true);
+        void awaitBiLogoOperation(
+          extrairCoresDeLogoDataUrl(configAtual.logoUrl),
+          token,
+        )
+          .then((res) => {
+            if (operations.isCurrent(token)) setPaletaLogo(res);
+          })
+          .catch(() => {
+            if (operations.isCurrent(token)) setPaletaLogo(null);
+          })
+          .finally(() => finalizarLogo(token));
       }
     }
-  }, [open, configAtual]);
+    return () => operations.invalidate();
+  }, [open, configAtual, estabelecimentoId, operations]);
 
-  const utils = trpc.useUtils();
+  const handleOpenChange = (nextOpen: boolean) => {
+    // A submitted server mutation cannot be undone by closing the dialog.
+    if (
+      persistindo ||
+      operations.kind === "save" ||
+      operations.kind === "reset"
+    )
+      return;
+    if (!nextOpen) invalidarLogo();
+    onOpenChange(nextOpen);
+  };
 
-  const salvarMut = trpc.painelBiPersonalizado.salvarConfiguracao.useMutation({
-    onSuccess: () => {
+  const handlePersistir = async (reset: boolean) => {
+    if (
+      !open ||
+      persistindo ||
+      operations.kind === "save" ||
+      operations.kind === "reset"
+    )
+      return;
+    // Check the synchronous owner as well as UI loading; never save the pre-upload draft.
+    if (!reset && operations.kind !== null) return;
+    invalidarLogo();
+    if (reset) setPaletaLogo(null);
+    const token = operations.begin(
+      estabelecimentoId,
+      draftRef.current.logoUrl,
+      reset ? "reset" : "save",
+    );
+    try {
+      if (reset) {
+        const res = await resetarMut.mutateAsync({ estabelecimentoId });
+        if (!operations.isCurrent(token)) return;
+        setDraft(res.config);
+        toast.success("Padrão executivo restaurado para este estabelecimento.");
+      } else {
+        await salvarMut.mutateAsync({
+          estabelecimentoId,
+          config: draftRef.current,
+        });
+        if (!operations.isCurrent(token)) return;
+        toast.success(`Personalização BI salva para ${estabelecimentoNome}!`);
+      }
       void utils.painelBiPersonalizado.invalidate();
-      toast.success(`Personalização BI salva para ${estabelecimentoNome}!`);
+      operations.finish(token);
       onSaved();
       onOpenChange(false);
-    },
-    onError: (err) => {
-      toast.error(err.message || "Não foi possível salvar a personalização.");
-    },
-  });
+    } catch (err: any) {
+      if (!operations.isCurrent(token)) return;
+      toast.error(
+        err?.message ||
+          (reset
+            ? "Falha ao restaurar configuração padrão."
+            : "Não foi possível salvar a personalização."),
+      );
+    } finally {
+      operations.finish(token);
+    }
+  };
 
-  const resetarMut = trpc.painelBiPersonalizado.resetarConfiguracao.useMutation({
-    onSuccess: (res) => {
-      void utils.painelBiPersonalizado.invalidate();
-      setDraft(res.config);
-      setPaletaLogo(null);
-      toast.success("Padrão executivo restaurado para este estabelecimento.");
-      onSaved();
-      onOpenChange(false);
-    },
-    onError: (err) => {
-      toast.error(err.message || "Falha ao restaurar configuração padrão.");
-    },
-  });
+  const marcarTemaManual = () => {
+    preferences.current.themeRevision += 1;
+  };
 
   const aplicarCoresExtraidasNoDraft = (
     corPrimaria: string,
@@ -174,8 +263,13 @@ export function BiPersonalizacaoDialog({
     estilo: EstiloLayoutLogoBi,
     logoDataUrl?: string,
   ) => {
-    const camposTema = gerarCamposTemaPorCoresDaLogo(corPrimaria, corSecundaria, estilo);
+    const camposTema = gerarCamposTemaPorCoresDaLogo(
+      corPrimaria,
+      corSecundaria,
+      estilo,
+    );
     setEstiloLayoutLogo(estilo);
+    preferences.current.estilo = estilo;
     setDraft((prev) => ({
       ...prev,
       ...(logoDataUrl !== undefined ? { logoUrl: logoDataUrl } : {}),
@@ -185,27 +279,50 @@ export function BiPersonalizacaoDialog({
 
   const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (
+      !file ||
+      !open ||
+      persistindo ||
+      operations.kind === "save" ||
+      operations.kind === "reset"
+    )
+      return;
     if (!file.type.startsWith("image/")) {
       toast.error("Selecione uma imagem PNG, JPG, SVG ou WebP.");
       return;
     }
+    const token = operations.begin(estabelecimentoId, file.name, "upload");
+    const themeRevision = preferences.current.themeRevision;
+    setPaletaLogo(null);
+    setExtraindoCoresLogo(true);
     try {
-      setExtraindoCoresLogo(true);
-      const dataUrl = await redimensionarLogoParaDataUrl(file);
+      const dataUrl = await awaitBiLogoOperation(
+        redimensionarLogoParaDataUrl(file),
+        token,
+      );
+      if (!operations.isCurrent(token)) return;
       let extraida: PaletaExtraidaLogo | null = null;
       try {
-        extraida = await extrairCoresDeLogoDataUrl(dataUrl);
+        extraida = await awaitBiLogoOperation(
+          extrairCoresDeLogoDataUrl(dataUrl),
+          token,
+        );
+        if (!operations.isCurrent(token)) return;
         setPaletaLogo(extraida);
       } catch {
+        if (!operations.isCurrent(token)) return;
         setPaletaLogo(null);
       }
 
-      if (extraida && autoCoresPelaLogo) {
+      if (
+        extraida &&
+        preferences.current.auto &&
+        themeRevision === preferences.current.themeRevision
+      ) {
         aplicarCoresExtraidasNoDraft(
           extraida.corPrimaria,
           extraida.corSecundaria,
-          estiloLayoutLogo,
+          preferences.current.estilo,
           dataUrl,
         );
         toast.success(
@@ -213,23 +330,45 @@ export function BiPersonalizacaoDialog({
         );
       } else {
         setDraft((prev) => ({ ...prev, logoUrl: dataUrl }));
-        toast.success("Logo carregada! Clique em Salvar para aplicar ao cliente.");
+        toast.success(
+          "Logo carregada! Clique em Salvar para aplicar ao cliente.",
+        );
       }
     } catch (err: any) {
-      toast.error(err?.message || "Erro ao processar a logo.");
+      if (operations.isCurrent(token))
+        toast.error(err?.message || "Erro ao processar a logo.");
     } finally {
-      setExtraindoCoresLogo(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      finalizarLogo(token);
     }
   };
 
-  const handleReaplicarCoresDaLogo = async (novoEstilo?: EstiloLayoutLogoBi) => {
-    if (!draft.logoUrl) return;
-    const estiloAlvo = novoEstilo || estiloLayoutLogo;
+  const handleReaplicarCoresDaLogo = async (
+    novoEstilo?: EstiloLayoutLogoBi,
+  ) => {
+    if (
+      !draft.logoUrl ||
+      !open ||
+      persistindo ||
+      operations.kind === "save" ||
+      operations.kind === "reset"
+    )
+      return;
+    const estiloAlvo = novoEstilo || preferences.current.estilo;
+    preferences.current.estilo = estiloAlvo;
+    setEstiloLayoutLogo(estiloAlvo);
+    const token = operations.begin(estabelecimentoId, draft.logoUrl, "apply");
+    const themeRevision = preferences.current.themeRevision;
+    setExtraindoCoresLogo(true);
     try {
-      setExtraindoCoresLogo(true);
-      const extraida = paletaLogo || (await extrairCoresDeLogoDataUrl(draft.logoUrl));
+      const extraida =
+        paletaLogo ||
+        (await awaitBiLogoOperation(
+          extrairCoresDeLogoDataUrl(draft.logoUrl),
+          token,
+        ));
+      if (!operations.isCurrent(token)) return;
       setPaletaLogo(extraida);
+      if (themeRevision !== preferences.current.themeRevision) return;
       aplicarCoresExtraidasNoDraft(
         extraida.corPrimaria,
         extraida.corSecundaria,
@@ -241,14 +380,18 @@ export function BiPersonalizacaoDialog({
           : "Layout Institucional Claro gerado pelas cores da logo!",
       );
     } catch {
-      toast.error("Não foi possível ler automaticamente as cores desta imagem.");
+      if (operations.isCurrent(token))
+        toast.error(
+          "Não foi possível ler automaticamente as cores desta imagem.",
+        );
     } finally {
-      setExtraindoCoresLogo(false);
+      finalizarLogo(token);
     }
   };
 
   const handleInverterCoresDaLogo = () => {
     if (!paletaLogo) return;
+    marcarTemaManual();
     const invertida: PaletaExtraidaLogo = {
       ...paletaLogo,
       corPrimaria: paletaLogo.corSecundaria,
@@ -294,10 +437,15 @@ export function BiPersonalizacaoDialog({
           toast.info("Mantenha pelo menos 1 cartão KPI ativo.");
           return prev;
         }
-        return { ...prev, kpisVisiveis: prev.kpisVisiveis.filter((k) => k !== kpi) };
+        return {
+          ...prev,
+          kpisVisiveis: prev.kpisVisiveis.filter((k) => k !== kpi),
+        };
       }
       if (prev.kpisVisiveis.length >= 8) {
-        toast.info("Máximo de 8 cartões KPI simultâneos para manter leitura executiva.");
+        toast.info(
+          "Máximo de 8 cartões KPI simultâneos para manter leitura executiva.",
+        );
         return prev;
       }
       return { ...prev, kpisVisiveis: [...prev.kpisVisiveis, kpi] };
@@ -316,6 +464,7 @@ export function BiPersonalizacaoDialog({
   };
 
   const selecionarPreset = (preset: Exclude<BiTemaPreset, "custom">) => {
+    marcarTemaManual();
     setDraft((prev) => ({
       ...prev,
       temaPreset: preset,
@@ -328,7 +477,7 @@ export function BiPersonalizacaoDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
@@ -336,11 +485,13 @@ export function BiPersonalizacaoDialog({
             Personalizar Painel BI — {estabelecimentoNome}
           </DialogTitle>
           <DialogDescription>
-            Configure a marca, paleta de cores, abas, cartões KPI e regras específicas deste cliente.
-            Cada hospital mantém seu próprio perfil salvo.
+            Configure a marca, paleta de cores, abas, cartões KPI e regras
+            específicas deste cliente. Cada hospital mantém seu próprio perfil
+            salvo.
           </DialogDescription>
         </DialogHeader>
 
+        <fieldset disabled={persistindo} className="min-w-0">
         <Tabs defaultValue="marca" className="mt-2">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="marca" className="text-xs">
@@ -371,7 +522,10 @@ export function BiPersonalizacaoDialog({
                 <label className="inline-flex items-center gap-2 text-[11px] font-medium text-slate-600 cursor-pointer">
                   <Switch
                     checked={autoCoresPelaLogo}
-                    onCheckedChange={setAutoCoresPelaLogo}
+                      onCheckedChange={(auto) => {
+                        preferences.current.auto = auto;
+                        setAutoCoresPelaLogo(auto);
+                      }}
                   />
                   Gerar layout automaticamente pelas cores da logo
                 </label>
@@ -399,12 +553,13 @@ export function BiPersonalizacaoDialog({
                       accept="image/png,image/jpeg,image/webp,image/svg+xml"
                       className="hidden"
                       onChange={handleUploadLogo}
+                        disabled={persistindo}
                     />
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={extraindoCoresLogo}
+                        disabled={persistindo}
                       onClick={() => fileInputRef.current?.click()}
                     >
                       {extraindoCoresLogo ? (
@@ -433,6 +588,7 @@ export function BiPersonalizacaoDialog({
                           size="sm"
                           className="text-rose-600 hover:text-rose-700"
                           onClick={() => {
+                              invalidarLogo();
                             setPaletaLogo(null);
                             setDraft((p) => ({ ...p, logoUrl: null }));
                           }}
@@ -443,8 +599,24 @@ export function BiPersonalizacaoDialog({
                       </>
                     )}
                   </div>
+                    {extraindoCoresLogo && (
+                      <div role="status" className="text-xs text-slate-600">
+                        Processando logo. Aguarde para salvar ou cancele o
+                        processamento.
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={invalidarLogo}
+                        >
+                          Cancelar processamento da logo
+                        </Button>
+                      </div>
+                    )}
                   <p className="text-[11px] text-slate-500">
-                    Ao enviar PNG, JPG, WebP ou SVG da marca do hospital, o sistema lê as cores da logo e monta o layout executivo sob medida.
+                      Ao enviar PNG, JPG, WebP ou SVG da marca do hospital, o
+                      sistema lê as cores da logo e monta o layout executivo sob
+                      medida.
                   </p>
                 </div>
               </div>
@@ -459,17 +631,24 @@ export function BiPersonalizacaoDialog({
                         Cores identificadas na logo
                       </span>
                       <span className="text-[10px] text-slate-500">
-                        ({paletaLogo.secundariaVindaDaLogo ? "2+ tons da marca" : "harmonia automática"})
+                          (
+                          {paletaLogo.secundariaVindaDaLogo
+                            ? "2+ tons da marca"
+                            : "harmonia automática"}
+                          )
                       </span>
                     </div>
 
                     <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
                       <button
                         type="button"
-                        onClick={() => handleReaplicarCoresDaLogo("executivo_escuro")}
+                          onClick={() =>
+                            handleReaplicarCoresDaLogo("executivo_escuro")
+                          }
                         className={cn(
                           "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors",
-                          estiloLayoutLogo === "executivo_escuro" && draft.temaPreset === "custom"
+                            estiloLayoutLogo === "executivo_escuro" &&
+                              draft.temaPreset === "custom"
                             ? "bg-slate-900 text-white shadow-2xs"
                             : "text-slate-600 hover:text-slate-900",
                         )}
@@ -479,10 +658,13 @@ export function BiPersonalizacaoDialog({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleReaplicarCoresDaLogo("executivo_claro")}
+                          onClick={() =>
+                            handleReaplicarCoresDaLogo("executivo_claro")
+                          }
                         className={cn(
                           "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors",
-                          estiloLayoutLogo === "executivo_claro" && draft.temaPreset === "custom"
+                            estiloLayoutLogo === "executivo_claro" &&
+                              draft.temaPreset === "custom"
                             ? "bg-white text-slate-900 shadow-2xs border border-slate-200"
                             : "text-slate-600 hover:text-slate-900",
                         )}
@@ -496,16 +678,22 @@ export function BiPersonalizacaoDialog({
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
                     <div className="flex flex-wrap items-center gap-1.5">
                       {paletaLogo.coresDetectadas.map((hex) => {
-                        const isPrim = paletaLogo.corPrimaria.toLowerCase() === hex.toLowerCase();
-                        const isSec = paletaLogo.corSecundaria.toLowerCase() === hex.toLowerCase();
+                          const isPrim =
+                            paletaLogo.corPrimaria.toLowerCase() ===
+                            hex.toLowerCase();
+                          const isSec =
+                            paletaLogo.corSecundaria.toLowerCase() ===
+                            hex.toLowerCase();
                         return (
                           <button
                             key={hex}
                             type="button"
                             title={`Clique para usar ${hex} como cor principal da marca`}
                             onClick={() => {
+                                marcarTemaManual();
                               const novaSec =
-                                paletaLogo.corSecundaria.toLowerCase() === hex.toLowerCase()
+                                  paletaLogo.corSecundaria.toLowerCase() ===
+                                  hex.toLowerCase()
                                   ? paletaLogo.corPrimaria
                                   : paletaLogo.corSecundaria;
                               const novaPaleta = {
@@ -514,7 +702,11 @@ export function BiPersonalizacaoDialog({
                                 corSecundaria: novaSec,
                               };
                               setPaletaLogo(novaPaleta);
-                              aplicarCoresExtraidasNoDraft(hex, novaSec, estiloLayoutLogo);
+                                aplicarCoresExtraidasNoDraft(
+                                  hex,
+                                  novaSec,
+                                  estiloLayoutLogo,
+                                );
                             }}
                             className={cn(
                               "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold transition-all",
@@ -530,8 +722,12 @@ export function BiPersonalizacaoDialog({
                               style={{ backgroundColor: hex }}
                             />
                             <span>{hex}</span>
-                            {isPrim && <span className="opacity-80">(Principal)</span>}
-                            {isSec && !isPrim && <span className="opacity-80">(Destaque)</span>}
+                              {isPrim && (
+                                <span className="opacity-80">(Principal)</span>
+                              )}
+                              {isSec && !isPrim && (
+                                <span className="opacity-80">(Destaque)</span>
+                              )}
                           </button>
                         );
                       })}
@@ -583,7 +779,8 @@ export function BiPersonalizacaoDialog({
                         className="text-[8px] font-bold uppercase tracking-widest truncate"
                         style={{ color: previewPalette.headerSubtext }}
                       >
-                        {draft.tituloRelatorio || "INDICADORES DE FATURAMENTO"}
+                          {draft.tituloRelatorio ||
+                            "INDICADORES DE FATURAMENTO"}
                       </p>
                       <div className="mt-1 flex items-center gap-1">
                         <span
@@ -660,11 +857,15 @@ export function BiPersonalizacaoDialog({
                     <div className="mt-1.5 space-y-1">
                       <div
                         className="h-2 rounded-xs w-4/5"
-                        style={{ backgroundColor: previewPalette.dataBarFaturado }}
+                          style={{
+                            backgroundColor: previewPalette.dataBarFaturado,
+                          }}
                       />
                       <div
                         className="h-2 rounded-xs w-3/5"
-                        style={{ backgroundColor: previewPalette.dataBarRecebido }}
+                          style={{
+                            backgroundColor: previewPalette.dataBarRecebido,
+                          }}
                       />
                     </div>
                   </div>
@@ -684,15 +885,21 @@ export function BiPersonalizacaoDialog({
                     <div className="flex items-end gap-1 h-5 pt-1">
                       <span
                         className="flex-1 rounded-t-xs h-3"
-                        style={{ backgroundColor: previewPalette.chartBarColor }}
+                          style={{
+                            backgroundColor: previewPalette.chartBarColor,
+                          }}
                       />
                       <span
                         className="flex-1 rounded-t-xs h-4"
-                        style={{ backgroundColor: previewPalette.chartBarColor }}
+                          style={{
+                            backgroundColor: previewPalette.chartBarColor,
+                          }}
                       />
                       <span
                         className="flex-1 rounded-t-xs h-5"
-                        style={{ backgroundColor: previewPalette.chartBarColor }}
+                          style={{
+                            backgroundColor: previewPalette.chartBarColor,
+                          }}
                       />
                     </div>
                   </div>
@@ -702,11 +909,16 @@ export function BiPersonalizacaoDialog({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">Nome curto do cliente (opcional)</Label>
+                  <Label className="text-xs">
+                    Nome curto do cliente (opcional)
+                  </Label>
                 <Input
                   value={draft.nomeExibicao || ""}
                   onChange={(e) =>
-                    setDraft((p) => ({ ...p, nomeExibicao: e.target.value || null }))
+                      setDraft((p) => ({
+                        ...p,
+                        nomeExibicao: e.target.value || null,
+                      }))
                   }
                   placeholder={estabelecimentoNome}
                 />
@@ -716,16 +928,23 @@ export function BiPersonalizacaoDialog({
                 <Input
                   value={draft.tituloRelatorio}
                   onChange={(e) =>
-                    setDraft((p) => ({ ...p, tituloRelatorio: e.target.value }))
+                      setDraft((p) => ({
+                        ...p,
+                        tituloRelatorio: e.target.value,
+                      }))
                   }
                   placeholder="INDICADORES DE FATURAMENTO"
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label className="text-xs">Assinatura esquerda do rodapé</Label>
+                  <Label className="text-xs">
+                    Assinatura esquerda do rodapé
+                  </Label>
                 <Input
                   value={draft.rodapeTexto}
-                  onChange={(e) => setDraft((p) => ({ ...p, rodapeTexto: e.target.value }))}
+                    onChange={(e) =>
+                      setDraft((p) => ({ ...p, rodapeTexto: e.target.value }))
+                    }
                   placeholder="CICLO DA RECEITA - FATURADO AO RECEBIMENTO"
                 />
               </div>
@@ -736,8 +955,11 @@ export function BiPersonalizacaoDialog({
                 Paleta de Cores do Painel
               </Label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {(Object.keys(BI_THEME_PRESETS) as Array<Exclude<BiTemaPreset, "custom">>).map(
-                  (key) => {
+                  {(
+                    Object.keys(BI_THEME_PRESETS) as Array<
+                      Exclude<BiTemaPreset, "custom">
+                    >
+                  ).map((key) => {
                     const preset = BI_THEME_PRESETS[key];
                     const ativo = draft.temaPreset === key;
                     return (
@@ -773,7 +995,9 @@ export function BiPersonalizacaoDialog({
                             <p className="text-xs font-bold text-slate-900 truncate">
                               {preset.nome}
                             </p>
-                            {ativo && <Check className="h-4 w-4 text-sky-600 shrink-0" />}
+                            {ativo && (
+                              <Check className="h-4 w-4 text-sky-600 shrink-0" />
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-500 leading-snug mt-0.5">
                             {preset.descricao}
@@ -781,19 +1005,22 @@ export function BiPersonalizacaoDialog({
                         </div>
                       </button>
                     );
-                  },
-                )}
+                  })}
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-3.5 space-y-3">
+              <div
+                className="rounded-xl border border-slate-200 p-3.5 space-y-3"
+                onChangeCapture={marcarTemaManual}
+              >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-bold text-slate-800">
                     Cores sob medida da marca do hospital (opcional)
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    Ajuste fino caso queira aplicar o código hexadecimal exato do cliente.
+                      Ajuste fino caso queira aplicar o código hexadecimal exato
+                      do cliente.
                   </p>
                 </div>
               </div>
@@ -818,7 +1045,9 @@ export function BiPersonalizacaoDialog({
                       onChange={(e) =>
                         setDraft((p) => ({
                           ...p,
-                          temaPreset: e.target.value ? "custom" : p.temaPreset,
+                            temaPreset: e.target.value
+                              ? "custom"
+                              : p.temaPreset,
                           corFundoCustom: e.target.value || null,
                         }))
                       }
@@ -847,7 +1076,9 @@ export function BiPersonalizacaoDialog({
                       onChange={(e) =>
                         setDraft((p) => ({
                           ...p,
-                          temaPreset: e.target.value ? "custom" : p.temaPreset,
+                            temaPreset: e.target.value
+                              ? "custom"
+                              : p.temaPreset,
                           corDestaqueCustom: e.target.value || null,
                         }))
                       }
@@ -876,7 +1107,9 @@ export function BiPersonalizacaoDialog({
                       onChange={(e) =>
                         setDraft((p) => ({
                           ...p,
-                          temaPreset: e.target.value ? "custom" : p.temaPreset,
+                            temaPreset: e.target.value
+                              ? "custom"
+                              : p.temaPreset,
                           corCardKpiCustom: e.target.value || null,
                         }))
                       }
@@ -905,7 +1138,9 @@ export function BiPersonalizacaoDialog({
                       onChange={(e) =>
                         setDraft((p) => ({
                           ...p,
-                          temaPreset: e.target.value ? "custom" : p.temaPreset,
+                            temaPreset: e.target.value
+                              ? "custom"
+                              : p.temaPreset,
                           corBarraGraficoCustom: e.target.value || null,
                         }))
                       }
@@ -927,9 +1162,21 @@ export function BiPersonalizacaoDialog({
 
               {(
                 [
-                  { id: "visao_geral", num: "01", desc: "Visão consolidada (Competência, Setores, Convênios e Evolução)" },
-                  { id: "glosas", num: "02", desc: "Auditoria de Glosas, Pareto de Motivos, Recursos e Itens Glosados" },
-                  { id: "setores_producao", num: "03", desc: "Detalhamento por Setor, Grupo de Faturamento e Top Procedimentos" },
+                    {
+                      id: "visao_geral",
+                      num: "01",
+                      desc: "Visão consolidada (Competência, Setores, Convênios e Evolução)",
+                    },
+                    {
+                      id: "glosas",
+                      num: "02",
+                      desc: "Auditoria de Glosas, Pareto de Motivos, Recursos e Itens Glosados",
+                    },
+                    {
+                      id: "setores_producao",
+                      num: "03",
+                      desc: "Detalhamento por Setor, Grupo de Faturamento e Top Procedimentos",
+                    },
                 ] as const
               ).map((aba) => {
                 const ativa = draft.abasVisiveis.includes(aba.id);
@@ -939,12 +1186,17 @@ export function BiPersonalizacaoDialog({
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"
                   >
                     <div className="flex items-start gap-3">
-                      <Switch checked={ativa} onCheckedChange={() => toggleAba(aba.id)} />
+                        <Switch
+                          checked={ativa}
+                          onCheckedChange={() => toggleAba(aba.id)}
+                        />
                       <div>
                         <p className="text-xs font-bold text-slate-800">
                           Página {aba.num} — {draft.nomesAbas[aba.id]}
                         </p>
-                        <p className="text-[11px] text-slate-500">{aba.desc}</p>
+                          <p className="text-[11px] text-slate-500">
+                            {aba.desc}
+                          </p>
                       </div>
                     </div>
                     <Input
@@ -952,7 +1204,10 @@ export function BiPersonalizacaoDialog({
                       onChange={(e) =>
                         setDraft((p) => ({
                           ...p,
-                          nomesAbas: { ...p.nomesAbas, [aba.id]: e.target.value },
+                            nomesAbas: {
+                              ...p.nomesAbas,
+                              [aba.id]: e.target.value,
+                            },
                         }))
                       }
                       className="h-8 w-full sm:w-48 text-xs bg-white"
@@ -973,17 +1228,28 @@ export function BiPersonalizacaoDialog({
                     { key: "competencia", label: "Matriz de Competência" },
                     { key: "setores", label: "Matriz de Setores / Grupo" },
                     { key: "convenios", label: "Matriz de Convênios" },
-                    { key: "evolucaoMensal", label: "Gráfico Evolução Mensal" },
+                      {
+                        key: "evolucaoMensal",
+                        label: "Gráfico Evolução Mensal",
+                      },
                   ] as const
                 ).map((b) => (
-                  <div key={b.key} className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-slate-700">{b.label}</span>
+                    <div
+                      key={b.key}
+                      className="flex items-center justify-between text-xs"
+                    >
+                      <span className="font-medium text-slate-700">
+                        {b.label}
+                      </span>
                     <Switch
                       checked={draft.blocosVisaoGeral[b.key]}
                       onCheckedChange={(v) =>
                         setDraft((p) => ({
                           ...p,
-                          blocosVisaoGeral: { ...p.blocosVisaoGeral, [b.key]: v },
+                            blocosVisaoGeral: {
+                              ...p.blocosVisaoGeral,
+                              [b.key]: v,
+                            },
                         }))
                       }
                     />
@@ -998,12 +1264,20 @@ export function BiPersonalizacaoDialog({
                 {(
                   [
                     { id: "setor", label: "Filtro SETOR no cabeçalho" },
-                    { id: "competencia", label: "Filtro COMPETÊNCIA no cabeçalho" },
+                      {
+                        id: "competencia",
+                        label: "Filtro COMPETÊNCIA no cabeçalho",
+                      },
                     { id: "convenio", label: "Filtro CONVÊNIO no cabeçalho" },
                   ] as const
                 ).map((f) => (
-                  <div key={f.id} className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-slate-700">{f.label}</span>
+                    <div
+                      key={f.id}
+                      className="flex items-center justify-between text-xs"
+                    >
+                      <span className="font-medium text-slate-700">
+                        {f.label}
+                      </span>
                     <Switch
                       checked={draft.filtrosVisiveis.includes(f.id)}
                       onCheckedChange={() => toggleFiltro(f.id)}
@@ -1016,7 +1290,9 @@ export function BiPersonalizacaoDialog({
                   </span>
                   <Switch
                     checked={draft.mostrarDataBars}
-                    onCheckedChange={(v) => setDraft((p) => ({ ...p, mostrarDataBars: v }))}
+                      onCheckedChange={(v) =>
+                        setDraft((p) => ({ ...p, mostrarDataBars: v }))
+                      }
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs">
@@ -1038,7 +1314,8 @@ export function BiPersonalizacaoDialog({
           <TabsContent value="kpis" className="space-y-4 pt-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
               <Label className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                Ordem dos Cartões Ativos no Topo ({draft.kpisVisiveis.length}/8)
+                  Ordem dos Cartões Ativos no Topo ({draft.kpisVisiveis.length}
+                  /8)
               </Label>
               <div className="space-y-1.5">
                 {draft.kpisVisiveis.map((kpiId, idx) => {
@@ -1054,7 +1331,9 @@ export function BiPersonalizacaoDialog({
                           {idx + 1}
                         </span>
                         <div>
-                          <span className="font-bold text-slate-900">{meta.label}</span>
+                            <span className="font-bold text-slate-900">
+                              {meta.label}
+                            </span>
                           <span className="ml-2 text-[11px] text-slate-500">
                             {meta.descricao}
                           </span>
@@ -1118,8 +1397,12 @@ export function BiPersonalizacaoDialog({
                         {selecionado && <Check className="h-3 w-3" />}
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-slate-900">{item.label}</p>
-                        <p className="text-[11px] text-slate-500">{item.descricao}</p>
+                          <p className="text-xs font-bold text-slate-900">
+                            {item.label}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {item.descricao}
+                          </p>
                       </div>
                     </button>
                   );
@@ -1154,8 +1437,9 @@ export function BiPersonalizacaoDialog({
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  <strong>Sobre Processado</strong> evita que competências recentes ainda em
-                  aberto ("A Receber") diluam artificialmente a taxa real de glosa.
+                    <strong>Sobre Processado</strong> evita que competências
+                    recentes ainda em aberto ("A Receber") diluam
+                    artificialmente a taxa real de glosa.
                 </p>
               </div>
 
@@ -1174,10 +1458,12 @@ export function BiPersonalizacaoDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="setor">
-                      Setor Hospitalar (UTI, Centro Cirúrgico, Pronto Atendimento...)
+                        Setor Hospitalar (UTI, Centro Cirúrgico, Pronto
+                        Atendimento...)
                     </SelectItem>
                     <SelectItem value="tipo_item">
-                      Grupo / Tipo de Item (Procedimentos, Mat/Med, Diárias, Taxas)
+                        Grupo / Tipo de Item (Procedimentos, Mat/Med, Diárias,
+                        Taxas)
                     </SelectItem>
                     <SelectItem value="prestador">
                       Prestador / Profissional Executante
@@ -1250,6 +1536,7 @@ export function BiPersonalizacaoDialog({
             </div>
           </TabsContent>
         </Tabs>
+        </fieldset>
 
         <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-3 border-t border-slate-100">
           <Button
@@ -1258,7 +1545,7 @@ export function BiPersonalizacaoDialog({
             size="sm"
             className="text-slate-600"
             disabled={resetarMut.isPending || salvarMut.isPending}
-            onClick={() => resetarMut.mutate({ estabelecimentoId })}
+            onClick={() => handlePersistir(true)}
           >
             {resetarMut.isPending ? (
               <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -1273,7 +1560,8 @@ export function BiPersonalizacaoDialog({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onOpenChange(false)}
+              disabled={persistindo}
+              onClick={() => handleOpenChange(false)}
             >
               Cancelar
             </Button>
@@ -1281,15 +1569,12 @@ export function BiPersonalizacaoDialog({
               type="button"
               size="sm"
               className="bg-slate-900 text-white hover:bg-slate-800"
-              disabled={salvarMut.isPending}
-              onClick={() =>
-                salvarMut.mutate({
-                  estabelecimentoId,
-                  config: draft,
-                })
-              }
+              disabled={persistindo || extraindoCoresLogo}
+              onClick={() => handlePersistir(false)}
             >
-              {salvarMut.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              {salvarMut.isPending && (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              )}
               Salvar Personalização deste Cliente
             </Button>
           </div>
