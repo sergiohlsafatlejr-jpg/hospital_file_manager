@@ -2,6 +2,11 @@ import React, { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BiThemePalette } from "@shared/biPersonalizadoConfig";
+import {
+  calcularTotaisMatrizGlosa,
+  obterPercentualLinhaMatrizGlosa,
+  type TotaisMatrizGlosaBi,
+} from "@/lib/biGlosasMatrixTotals";
 
 export interface LinhaMatrizGlosaBi {
   chave: string;
@@ -42,15 +47,10 @@ interface BiGlosasMatrixTableProps {
   onLimparSelecao?: () => void;
   maxHeightClass?: string;
   headerRightSlot?: React.ReactNode;
-  totaisExplicito?: {
-    valorProcessado?: number;
-    valorGlosado: number;
-    glosaRecursada: number;
-    glosaAceita: number;
-    glosaPendente: number;
-    taxaGlosa?: number;
-    qtdItens?: number;
-  };
+  totaisExplicito?: TotaisMatrizGlosaBi;
+  /** Total do resumo usado pela API nas participações, nunca a soma do TOP N. */
+  denominadorParticipacao?: number;
+  descricaoEscopoLinhas?: string;
 }
 
 const fmtMoeda = (v: number) =>
@@ -82,6 +82,8 @@ export function BiGlosasMatrixTable({
   maxHeightClass = "max-h-[320px]",
   headerRightSlot,
   totaisExplicito,
+  denominadorParticipacao,
+  descricaoEscopoLinhas,
 }: BiGlosasMatrixTableProps) {
   const [sortField, setSortField] = useState<SortFieldGlosa>("valorGlosado");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -96,9 +98,7 @@ export function BiGlosasMatrixTable({
   };
 
   const getPctRow = (r: LinhaMatrizGlosaBi) =>
-    modoPercentual === "participacao"
-      ? Number(r.percentualTotal ?? 0)
-      : Number(r.taxaGlosa ?? 0);
+    obterPercentualLinhaMatrizGlosa(r, modoPercentual, denominadorParticipacao);
 
   const linhasOrdenadas = useMemo(() => {
     const copia = [...linhas];
@@ -114,7 +114,7 @@ export function BiGlosasMatrixTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copia;
-  }, [linhas, sortField, sortDir, modoPercentual]);
+  }, [linhas, sortField, sortDir, modoPercentual, denominadorParticipacao]);
 
   const maximos = useMemo(() => {
     let proc = 1;
@@ -132,50 +132,10 @@ export function BiGlosasMatrixTable({
     return { proc, glosa, rec, aceita, pend };
   }, [linhas]);
 
-  const totais = useMemo(() => {
-    if (totaisExplicito) {
-      return {
-        valorProcessado: Number(totaisExplicito.valorProcessado || 0),
-        valorGlosado: Number(totaisExplicito.valorGlosado || 0),
-        glosaRecursada: Number(totaisExplicito.glosaRecursada || 0),
-        glosaAceita: Number(totaisExplicito.glosaAceita || 0),
-        glosaPendente: Number(totaisExplicito.glosaPendente || 0),
-        qtdItens: Number(totaisExplicito.qtdItens || 0),
-        pct:
-          modoPercentual === "participacao"
-            ? 100
-            : Number(totaisExplicito.taxaGlosa ?? 0),
-      };
-    }
-
-    const acc = linhas.reduce(
-      (s, r) => ({
-        valorProcessado: s.valorProcessado + Number(r.valorProcessado || 0),
-        valorGlosado: s.valorGlosado + Number(r.valorGlosado || 0),
-        glosaRecursada: s.glosaRecursada + Number(r.glosaRecursada || 0),
-        glosaAceita: s.glosaAceita + Number(r.glosaAceita || 0),
-        glosaPendente: s.glosaPendente + Number(r.glosaPendente || 0),
-        qtdItens: s.qtdItens + Number(r.qtdItens || 0),
-      }),
-      {
-        valorProcessado: 0,
-        valorGlosado: 0,
-        glosaRecursada: 0,
-        glosaAceita: 0,
-        glosaPendente: 0,
-        qtdItens: 0,
-      },
-    );
-    const pct =
-      modoPercentual === "participacao"
-        ? acc.valorGlosado > 0
-          ? 100
-          : 0
-        : acc.valorProcessado > 0
-          ? Number(((acc.valorGlosado / acc.valorProcessado) * 100).toFixed(2))
-          : 0;
-    return { ...acc, pct };
-  }, [linhas, totaisExplicito, modoPercentual]);
+  const totais = useMemo(
+    () => calcularTotaisMatrizGlosa(linhas, modoPercentual, totaisExplicito, denominadorParticipacao),
+    [linhas, totaisExplicito, modoPercentual, denominadorParticipacao],
+  );
 
   const renderSortIcon = (field: SortFieldGlosa) => {
     if (sortField !== field) {
@@ -187,6 +147,31 @@ export function BiGlosasMatrixTable({
       <ArrowDown className="h-3 w-3 shrink-0" />
     );
   };
+
+  const renderSortHeader = (field: SortFieldGlosa, label: string, dimensao = false) => (
+    <th
+      scope="col"
+      aria-sort={sortField === field ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+      className={cn(
+        "py-2 whitespace-nowrap",
+        dimensao || field === "taxa" ? "px-2.5" : "px-2",
+        !dimensao && "text-right",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        aria-label={`Ordenar por ${label}`}
+        className={cn(
+          "inline-flex w-full items-center gap-1 cursor-pointer hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-current focus-visible:-outline-offset-2",
+          !dimensao && "justify-end",
+        )}
+      >
+        {label}
+        {renderSortIcon(field)}
+      </button>
+    </th>
+  );
 
   const renderDataCell = (valor: number, max: number, corBarra: string) => {
     const pctLargura =
@@ -260,6 +245,7 @@ export function BiGlosasMatrixTable({
           )}
         >
           <table className="w-full border-collapse text-left">
+            <caption className="sr-only">{titulo}. {descricaoEscopoLinhas}</caption>
             <thead
               className="sticky top-0 z-20 select-none text-[11px] font-bold"
               style={{
@@ -268,82 +254,14 @@ export function BiGlosasMatrixTable({
               }}
             >
               <tr>
-                <th
-                  onClick={() => handleSort("label")}
-                  className="cursor-pointer px-2.5 py-2 whitespace-nowrap hover:opacity-90"
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {colunaDimensaoLabel}
-                    {renderSortIcon("label")}
-                  </span>
-                </th>
-                {mostrarQuantidade && (
-                  <th
-                    onClick={() => handleSort("qtdItens")}
-                    className="cursor-pointer px-2 py-2 text-right whitespace-nowrap hover:opacity-90"
-                  >
-                    <span className="inline-flex items-center justify-end gap-1">
-                      Itens
-                      {renderSortIcon("qtdItens")}
-                    </span>
-                  </th>
-                )}
-                {mostrarProcessado && (
-                  <th
-                    onClick={() => handleSort("valorProcessado")}
-                    className="cursor-pointer px-2 py-2 text-right whitespace-nowrap hover:opacity-90"
-                  >
-                    <span className="inline-flex items-center justify-end gap-1">
-                      Processado
-                      {renderSortIcon("valorProcessado")}
-                    </span>
-                  </th>
-                )}
-                <th
-                  onClick={() => handleSort("valorGlosado")}
-                  className="cursor-pointer px-2 py-2 text-right whitespace-nowrap hover:opacity-90"
-                >
-                  <span className="inline-flex items-center justify-end gap-1">
-                    Glosado
-                    {renderSortIcon("valorGlosado")}
-                  </span>
-                </th>
-                <th
-                  onClick={() => handleSort("glosaRecursada")}
-                  className="cursor-pointer px-2 py-2 text-right whitespace-nowrap hover:opacity-90"
-                >
-                  <span className="inline-flex items-center justify-end gap-1">
-                    Recursada
-                    {renderSortIcon("glosaRecursada")}
-                  </span>
-                </th>
-                <th
-                  onClick={() => handleSort("glosaAceita")}
-                  className="cursor-pointer px-2 py-2 text-right whitespace-nowrap hover:opacity-90"
-                >
-                  <span className="inline-flex items-center justify-end gap-1">
-                    Aceita
-                    {renderSortIcon("glosaAceita")}
-                  </span>
-                </th>
-                <th
-                  onClick={() => handleSort("glosaPendente")}
-                  className="cursor-pointer px-2 py-2 text-right whitespace-nowrap hover:opacity-90"
-                >
-                  <span className="inline-flex items-center justify-end gap-1">
-                    Pendente
-                    {renderSortIcon("glosaPendente")}
-                  </span>
-                </th>
-                <th
-                  onClick={() => handleSort("taxa")}
-                  className="cursor-pointer px-2.5 py-2 text-right whitespace-nowrap hover:opacity-90"
-                >
-                  <span className="inline-flex items-center justify-end gap-1">
-                    {modoPercentual === "participacao" ? "% Share" : "% Glosa"}
-                    {renderSortIcon("taxa")}
-                  </span>
-                </th>
+                {renderSortHeader("label", colunaDimensaoLabel, true)}
+                {mostrarQuantidade && renderSortHeader("qtdItens", "Itens")}
+                {mostrarProcessado && renderSortHeader("valorProcessado", "Processado")}
+                {renderSortHeader("valorGlosado", "Glosado")}
+                {renderSortHeader("glosaRecursada", "Recursada")}
+                {renderSortHeader("glosaAceita", "Aceita")}
+                {renderSortHeader("glosaPendente", "Pendente")}
+                {renderSortHeader("taxa", modoPercentual === "participacao" ? "% Share" : "% Glosa")}
               </tr>
             </thead>
 
@@ -367,9 +285,19 @@ export function BiGlosasMatrixTable({
                     <tr
                       key={`${row.chave}-${idx}`}
                       onClick={() => onToggleChave?.(row.chave)}
+                      role={onToggleChave ? "button" : undefined}
+                      tabIndex={onToggleChave ? 0 : undefined}
+                      aria-pressed={onToggleChave ? Boolean(selecionada) : undefined}
+                      aria-label={onToggleChave ? `Filtrar ${colunaDimensaoLabel}: ${row.label}` : undefined}
+                      onKeyDown={onToggleChave ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          if (!event.repeat) onToggleChave(row.chave);
+                        }
+                      } : undefined}
                       className={cn(
                         "transition-colors",
-                        onToggleChave && "cursor-pointer",
+                        onToggleChave && "cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-900 focus-visible:-outline-offset-2",
                         selecionada
                           ? "bg-amber-50/90 font-semibold"
                           : idx % 2 === 0
@@ -447,7 +375,14 @@ export function BiGlosasMatrixTable({
                 }}
               >
                 <tr>
-                  <td className="px-2.5 py-2">Total</td>
+                  <td
+                    className="px-2.5 py-2"
+                    title={totaisExplicito
+                      ? `Resumo com todos os filtros aplicados; não é a soma das linhas. ${descricaoEscopoLinhas ?? ""}`
+                      : `Soma somente das linhas retornadas deste ranking, que pode ser parcial. ${descricaoEscopoLinhas ?? ""}`}
+                  >
+                    {totaisExplicito ? "Total da seleção" : "Subtotal das linhas"}
+                  </td>
                   {mostrarQuantidade && (
                     <td className="px-2 py-2 text-right whitespace-nowrap">
                       {totais.qtdItens.toLocaleString("pt-BR")}

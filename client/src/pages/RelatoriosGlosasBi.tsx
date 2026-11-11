@@ -1771,6 +1771,9 @@ function RelatoriosGlosasContent({
                     chaveSelecionada={mesPagamento}
                     onToggleChave={toggleMesPagamento}
                     onLimparSelecao={() => setMesPagamento(undefined)}
+                    descricaoEscopoLinhas={isWarleine
+                      ? "Linhas por competência com todos os filtros aplicados."
+                      : "Ranking mensal (até 18 meses), sem o filtro do próprio mês; demais filtros mantidos."}
                     totaisExplicito={{
                       valorProcessado: data.resumo.valorProcessado,
                       valorGlosado: data.resumo.valorGlosado,
@@ -1793,6 +1796,9 @@ function RelatoriosGlosasContent({
                     onLimparSelecao={() =>
                       isWarleine ? setConvenioChave(undefined) : setConvenioId(undefined)
                     }
+                    descricaoEscopoLinhas={isWarleine
+                      ? "Ranking limitado de convênios com todos os filtros aplicados."
+                      : "Ranking limitado de convênios, sem o filtro do próprio convênio; demais filtros mantidos."}
                     totaisExplicito={{
                       valorProcessado: data.resumo.valorProcessado,
                       valorGlosado: data.resumo.valorGlosado,
@@ -1939,6 +1945,10 @@ function RelatoriosGlosasContent({
                     mostrarProcessado={false}
                     mostrarQuantidade
                     modoPercentual="participacao"
+                    denominadorParticipacao={data.resumo.valorGlosado}
+                    descricaoEscopoLinhas={isWarleine
+                      ? "Ranking limitado de motivos com todos os filtros; participação sobre a glosa do resumo da seleção."
+                      : "Ranking limitado de motivos, sem o filtro do próprio motivo; participação sobre a glosa do resumo da seleção, podendo exceder 100%."}
                     chaveSelecionada={motivoCodigo}
                     onToggleChave={toggleMotivo}
                     onLimparSelecao={() => setMotivoCodigo(undefined)}
@@ -1983,6 +1993,10 @@ function RelatoriosGlosasContent({
                     mostrarProcessado
                     mostrarQuantidade
                     modoPercentual="participacao"
+                    denominadorParticipacao={data.resumo.valorGlosado}
+                    descricaoEscopoLinhas={isWarleine
+                      ? "Ranking limitado de procedimentos com todos os filtros; participação sobre a glosa do resumo da seleção."
+                      : "Ranking limitado de procedimentos, sem o filtro do próprio procedimento; participação sobre a glosa do resumo da seleção, podendo exceder 100%."}
                     maxHeightClass="max-h-[340px]"
                     chaveSelecionada={procedimentoCodigo}
                     onToggleChave={toggleProcedimento}
@@ -1998,6 +2012,9 @@ function RelatoriosGlosasContent({
                     mostrarProcessado
                     mostrarQuantidade
                     modoPercentual="taxaGlosa"
+                    descricaoEscopoLinhas={isWarleine
+                      ? "Ranking limitado de itens com todos os filtros aplicados."
+                      : "Ranking limitado de itens, sem o filtro da própria descrição; demais filtros mantidos."}
                     maxHeightClass="max-h-[380px]"
                     chaveSelecionada={itemDescricao}
                     onToggleChave={toggleItem}
