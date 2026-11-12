@@ -816,3 +816,341 @@ export async function analisarClausulasContratuaisComIA(
     return pontosBase;
   }
 }
+
+export type ResultadoOcrDocumentoContrato = {
+  id: number;
+  nomeArquivo: string;
+  status: "concluido" | "ocr_necessario" | "erro";
+  paginas: number;
+  textoExtraido: string;
+  pontosImportantes: ContratoConvenioPonto[];
+  ocrExecutado: boolean;
+  motivo?: "storage_indisponivel" | "ia_indisponivel" | "texto_insuficiente";
+};
+
+function normalizarPontosExistentes(valor: unknown): ContratoConvenioPonto[] {
+  try {
+    const lista = typeof valor === "string" ? JSON.parse(valor) : valor;
+    if (!Array.isArray(lista)) return [];
+    return lista.filter(pontoContratualValido);
+  } catch {
+    return [];
+  }
+}
+
+export async function executarOcrDocumentoContrato(
+  documento: {
+    id: number;
+    contratoId: number;
+    estabelecimentoId: number;
+    nomeArquivo: string;
+    storageKey: string;
+    paginas: number | null;
+    status: string;
+    textoExtraido: string | null;
+    pontosImportantes: unknown;
+  },
+  deps?: {
+    obterUrl?: (storageKey: string) => Promise<{ key: string; url: string }>;
+    chamarLLM?: typeof import("./_core/llm").invokeLLM;
+    database?: Awaited<ReturnType<typeof getDb>>;
+  }
+): Promise<ResultadoOcrDocumentoContrato> {
+  const pontosAtuais = normalizarPontosExistentes(documento.pontosImportantes);
+  const textoAtual = normalizarTextoPdf(documento.textoExtraido || "");
+  const paginasAtuais =
+    documento.paginas && documento.paginas > 0 ? Number(documento.paginas) : 0;
+
+  let pdfUrl = "";
+  try {
+    const obterUrlFn = deps?.obterUrl ?? storageGet;
+    const cloud = await obterUrlFn(documento.storageKey);
+    if (cloud?.url) {
+      pdfUrl = cloud.url;
+    }
+  } catch {
+    // Tenta fallback local caso o arquivo exista no disco local
+  }
+
+  if (!pdfUrl) {
+    try {
+      const localPath = obterCaminhoLocalPdfContrato(documento.storageKey);
+      if (existsSync(localPath)) {
+        const stat = await fs.stat(localPath);
+        if (stat.isFile() && stat.size > 0 && stat.size <= 25 * 1024 * 1024) {
+          const buf = await fs.readFile(localPath);
+          pdfUrl = `data:application/pdf;base64,${buf.toString("base64")}`;
+        }
+      }
+    } catch {
+      // Sem arquivo local disponível
+    }
+  }
+
+  if (!pdfUrl) {
+    return {
+      id: documento.id,
+      nomeArquivo: documento.nomeArquivo,
+      status:
+        documento.status === "concluido" ? "concluido" : "ocr_necessario",
+      paginas: paginasAtuais,
+      textoExtraido: textoAtual,
+      pontosImportantes: pontosAtuais,
+      ocrExecutado: false,
+      motivo: "storage_indisponivel",
+    };
+  }
+
+  let parsed: any;
+  try {
+    const invokeLLMFn =
+      deps?.chamarLLM ?? (await import("./_core/llm")).invokeLLM;
+    const response = await invokeLLMFn({
+      messages: [
+        {
+          role: "system",
+          content:
+            "Você é um motor de OCR jurídico-hospitalar de alta precisão e auditor especialista em contratos de operadoras de saúde (ANS/TISS/TUSS/CBHPM/Brasíndice/Simpro). Este arquivo PDF é digitalizado (imagem escaneada). Faça a leitura visual completa (OCR) de todas as páginas do documento e extraia: (1) textoTranscrito: transcrição textual fiel e detalhada do conteúdo do documento (partes, vigência, objeto, prazos de faturamento e pagamento, prazos e regras de recurso de glosa, reajustes, índices, obrigações, rescisão, contatos e anexos). IMPORTANTE PARA TABELAS DE PREÇOS E PROCEDIMENTOS: Sempre que houver tabelas de procedimentos, pacotes, diárias, taxas, gases, materiais/medicamentos ou portes no PDF escaneado, transcreva cada linha no textoTranscrito no formato padronizado 'CODIGO - DESCRICAO DO PROCEDIMENTO - R$ VALOR' (exemplo: '10101012 - Consulta em consultório - R$ 150,00') para que o motor determinístico de auditoria de XML e Glosas indexe todos os códigos e preços; (2) paginasEstimadas: número inteiro de páginas lidas; (3) pontos: cláusulas e regras estruturadas por categoria. Responda APENAS em JSON válido seguindo estritamente o schema.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Realize o OCR completo (leitura visual do PDF digitalizado) e extraia o texto integral, as cláusulas contratuais e todos os itens/valores de tabelas do arquivo "${documento.nomeArquivo}":`,
+            },
+            {
+              type: "file_url",
+              file_url: {
+                url: pdfUrl,
+                mime_type: "application/pdf",
+              },
+            },
+          ],
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "ocr_contrato_hospitalar",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              textoTranscrito: { type: "string" },
+              paginasEstimadas: { type: "number" },
+              pontos: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    categoria: {
+                      type: "string",
+                      enum: [
+                        "partes",
+                        "vigencia",
+                        "faturamento",
+                        "pagamento",
+                        "glosa_recurso",
+                        "tabelas_valores",
+                        "documentos",
+                        "obrigacoes",
+                        "rescisao",
+                        "dados_e_sigilo",
+                        "contatos",
+                      ],
+                    },
+                    titulo: { type: "string" },
+                    resumo: { type: "string" },
+                    prioridade: {
+                      type: "string",
+                      enum: ["alta", "media", "baixa"],
+                    },
+                  },
+                  required: ["categoria", "titulo", "resumo", "prioridade"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["textoTranscrito", "paginasEstimadas", "pontos"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const content = response.choices?.[0]?.message?.content;
+    const contentText = typeof content === "string" ? content : "";
+    if (!contentText) throw new Error("Resposta OCR vazia");
+    parsed = JSON.parse(contentText);
+  } catch {
+    return {
+      id: documento.id,
+      nomeArquivo: documento.nomeArquivo,
+      status:
+        documento.status === "concluido" ? "concluido" : "ocr_necessario",
+      paginas: paginasAtuais,
+      textoExtraido: textoAtual,
+      pontosImportantes: pontosAtuais,
+      ocrExecutado: false,
+      motivo: "ia_indisponivel",
+    };
+  }
+
+  const pontosIA: ContratoConvenioPonto[] = Array.isArray(parsed?.pontos)
+    ? parsed.pontos
+        .filter(pontoContratualValido)
+        .map((p: ContratoConvenioPonto) => ({
+          categoria: p.categoria,
+          titulo: p.titulo.trim().slice(0, 160),
+          resumo: p.resumo.trim().slice(0, 600),
+          prioridade: p.prioridade,
+        }))
+        .filter((p: ContratoConvenioPonto) => p.titulo && p.resumo)
+    : [];
+
+  let textoBruto =
+    typeof parsed?.textoTranscrito === "string" ? parsed.textoTranscrito : "";
+  if (normalizarTextoPdf(textoBruto).length < 80 && pontosIA.length > 0) {
+    const complemento = pontosIA
+      .map(p => `${p.titulo}: ${p.resumo}`)
+      .join("\n");
+    textoBruto = [textoBruto, complemento].filter(Boolean).join("\n");
+  }
+
+  const textoExtraido = normalizarTextoPdf(textoBruto || textoAtual);
+  const pontosDeterministicos = extrairPontosImportantes(textoExtraido);
+  const chavesVistas = new Set(
+    pontosIA.map(p => `${p.categoria}:${p.titulo.toLowerCase()}`)
+  );
+  const pontosFinais: ContratoConvenioPonto[] = [...pontosIA];
+  for (const ponto of pontosDeterministicos) {
+    const chave = `${ponto.categoria}:${ponto.titulo.toLowerCase()}`;
+    if (!chavesVistas.has(chave)) {
+      chavesVistas.add(chave);
+      pontosFinais.push(ponto);
+    }
+  }
+
+  const novoStatus: "concluido" | "ocr_necessario" =
+    textoExtraido.length >= 80 ? "concluido" : "ocr_necessario";
+  const paginasEstimadas =
+    typeof parsed?.paginasEstimadas === "number" &&
+    Number.isFinite(parsed.paginasEstimadas) &&
+    parsed.paginasEstimadas > 0
+      ? Math.min(512, Math.round(parsed.paginasEstimadas))
+      : 0;
+  const paginasFinais = paginasAtuais > 0 ? paginasAtuais : paginasEstimadas;
+
+  const db = deps?.database !== undefined ? deps.database : await getDb();
+  if (db && (novoStatus === "concluido" || pontosFinais.length > 0)) {
+    await db
+      .update(contratosConveniosDocumentos)
+      .set({
+        textoExtraido,
+        pontosImportantes: pontosFinais,
+        status: novoStatus,
+        paginas: paginasFinais > 0 ? paginasFinais : documento.paginas,
+        erroProcessamento: null,
+      })
+      .where(
+        and(
+          eq(contratosConveniosDocumentos.id, documento.id),
+          eq(contratosConveniosDocumentos.contratoId, documento.contratoId),
+          eq(
+            contratosConveniosDocumentos.estabelecimentoId,
+            documento.estabelecimentoId
+          )
+        )
+      );
+  }
+
+  return {
+    id: documento.id,
+    nomeArquivo: documento.nomeArquivo,
+    status: novoStatus,
+    paginas: paginasFinais,
+    textoExtraido,
+    pontosImportantes: pontosFinais,
+    ocrExecutado: novoStatus === "concluido",
+    ...(novoStatus !== "concluido" ? { motivo: "texto_insuficiente" } : {}),
+  };
+}
+
+export async function executarOcrDocumentosContrato(
+  params: {
+    contratoId: number;
+    estabelecimentoId?: number;
+  },
+  deps?: {
+    obterUrl?: (storageKey: string) => Promise<{ key: string; url: string }>;
+    chamarLLM?: typeof import("./_core/llm").invokeLLM;
+    database?: Awaited<ReturnType<typeof getDb>>;
+  }
+): Promise<{
+  contratoId: number;
+  totalPendentesOcr: number;
+  concluidos: number;
+  permanecemOcr: number;
+  documentos: ResultadoOcrDocumentoContrato[];
+}> {
+  await ensureContratosConveniosDocumentosTable();
+  const db = deps?.database !== undefined ? deps.database : await getDb();
+  if (!db) {
+    throw new Error("Banco de dados indisponível.");
+  }
+
+  let estabelecimentoId = params.estabelecimentoId;
+  if (!estabelecimentoId) {
+    const [contrato] = await db
+      .select({ estabelecimentoId: contratosConvenios.estabelecimentoId })
+      .from(contratosConvenios)
+      .where(eq(contratosConvenios.id, params.contratoId))
+      .limit(1);
+    if (!contrato) {
+      return {
+        contratoId: params.contratoId,
+        totalPendentesOcr: 0,
+        concluidos: 0,
+        permanecemOcr: 0,
+        documentos: [],
+      };
+    }
+    estabelecimentoId = contrato.estabelecimentoId;
+  }
+
+  const docs = await db
+    .select()
+    .from(contratosConveniosDocumentos)
+    .where(
+      and(
+        eq(contratosConveniosDocumentos.contratoId, params.contratoId),
+        eq(contratosConveniosDocumentos.estabelecimentoId, estabelecimentoId)
+      )
+    )
+    .orderBy(desc(contratosConveniosDocumentos.createdAt));
+
+  const pendentes = docs.filter(
+    d =>
+      d.status === "ocr_necessario" ||
+      (d.status === "concluido" && (d.textoExtraido ?? "").trim().length < 80)
+  );
+
+  const resultados: ResultadoOcrDocumentoContrato[] = [];
+  for (const doc of pendentes) {
+    const res = await executarOcrDocumentoContrato(doc, {
+      ...deps,
+      database: db,
+    });
+    resultados.push(res);
+  }
+
+  return {
+    contratoId: params.contratoId,
+    totalPendentesOcr: pendentes.length,
+    concluidos: resultados.filter(r => r.status === "concluido").length,
+    permanecemOcr: resultados.filter(r => r.status !== "concluido").length,
+    documentos: resultados,
+  };
+}
+

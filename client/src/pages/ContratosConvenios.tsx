@@ -144,17 +144,45 @@ export default function ContratosConvenios() {
   });
 
   const reanalisarIA = trpc.contratosConvenios.reanalisarDocumentoIA.useMutation({
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       if (documentoDetalheId) {
         utils.contratosConvenios.obterDocumento.invalidate({ id: documentoDetalheId });
       }
       if (documentosContratoId) {
         utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: documentosContratoId });
+        utils.contratosConvenios.obterDossie.invalidate({ contratoId: documentosContratoId });
+      } else {
+        utils.contratosConvenios.obterDossie.invalidate();
       }
-      toast.success("Cláusulas de glosa, tabelas e prazos extraídas com IA!");
+      if (res?.ocrExecutado) {
+        toast.success("OCR concluído com IA! Texto, cláusulas e tabelas extraídos do PDF digitalizado.");
+      } else if (res?.status === "ocr_necessario") {
+        toast.warning("Não foi possível extrair texto suficiente deste PDF digitalizado no momento.");
+      } else {
+        toast.success("Cláusulas de glosa, tabelas e prazos extraídas com IA!");
+      }
     },
     onError: (error) => {
       toast.error(`Erro na análise IA: ${error.message}`);
+    },
+  });
+
+  const executarOcrContrato = trpc.contratosConvenios.executarOcrContrato.useMutation({
+    onSuccess: (res) => {
+      if (documentosContratoId) {
+        utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: documentosContratoId });
+        utils.contratosConvenios.obterDossie.invalidate({ contratoId: documentosContratoId });
+      }
+      if (res.concluidos > 0) {
+        toast.success(`OCR concluído em ${res.concluidos} de ${res.totalPendentesOcr} PDF(s) digitalizado(s)!`);
+      } else if (res.totalPendentesOcr === 0) {
+        toast.info("Todos os PDFs deste contrato já possuem leitura concluída.");
+      } else {
+        toast.warning(`Não foi possível concluir o OCR automático nos ${res.permanecemOcr} PDF(s) pendente(s).`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro ao executar OCR: ${error.message}`);
     },
   });
 
@@ -653,6 +681,19 @@ export default function ContratosConvenios() {
                 <h3 className="font-semibold">Documentos já importados</h3>
                 <div className="flex items-center gap-2">
                   {documentos.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {documentosContratoId && documentos.data?.some(d => d.status === "ocr_necessario") && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={executarOcrContrato.isPending}
+                      className="h-8 text-xs gap-1.5 text-amber-800 border-amber-300 bg-amber-50 hover:bg-amber-100"
+                      onClick={() => executarOcrContrato.mutate({ contratoId: documentosContratoId })}
+                    >
+                      {executarOcrContrato.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      {executarOcrContrato.isPending ? "Lendo PDFs digitalizados..." : "Executar OCR nos Digitalizados (IA)"}
+                    </Button>
+                  )}
                   {documentosContratoId && (
                     <Button
                       type="button"
@@ -745,11 +786,32 @@ export default function ContratosConvenios() {
                   className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50"
                 >
                   {reanalisarIA.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {reanalisarIA.isPending ? "Extraindo cláusulas..." : "Extrair Cláusulas p/ Recurso de Glosa (IA)"}
+                  {reanalisarIA.isPending
+                    ? documentoDetalhe.data.status === "ocr_necessario"
+                      ? "Executando OCR..."
+                      : "Extraindo cláusulas..."
+                    : documentoDetalhe.data.status === "ocr_necessario"
+                      ? "Ler PDF Digitalizado com OCR (IA)"
+                      : "Extrair Cláusulas p/ Recurso de Glosa (IA)"}
                 </Button>
               </div>
               {documentoDetalhe.data.status === "ocr_necessario" && (
-                <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><FileWarning className="mt-0.5 h-4 w-4 shrink-0" />Este PDF não apresentou texto selecionável suficiente. Os pontos abaixo podem estar incompletos; a próxima etapa é OCR.</div>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <div className="flex gap-2">
+                    <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>Este PDF não apresentou texto selecionável suficiente (imagem escaneada). Clique ao lado para extrair o texto, cláusulas e tabelas via OCR com IA.</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={reanalisarIA.isPending}
+                    onClick={() => reanalisarIA.mutate({ id: documentoDetalhe.data!.id })}
+                    className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
+                  >
+                    {reanalisarIA.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    {reanalisarIA.isPending ? "Processando OCR..." : "Executar OCR Agora"}
+                  </Button>
+                </div>
               )}
               <div>
                 <h3 className="mb-2 font-semibold">Pontos importantes encontrados</h3>

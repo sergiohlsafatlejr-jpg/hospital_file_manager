@@ -11,6 +11,8 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import {
   analisarClausulasContratuaisComIA,
   ensureContratosConveniosDocumentosTable,
+  executarOcrDocumentoContrato,
+  executarOcrDocumentosContrato,
   obterContextoContratualParaGlosa,
   obterUrlDownloadPdfContrato,
   type ContratoConvenioPonto,
@@ -267,6 +269,21 @@ export const contratosConveniosRouter = router({
           message: "Documento não encontrado.",
         });
       await contratoAutorizado(db, ctx.user, documento.contratoId, "gerenciar");
+      if (
+        (documento.status === "ocr_necessario" ||
+          (documento.textoExtraido ?? "").trim().length < 80) &&
+        typeof executarOcrDocumentoContrato === "function"
+      ) {
+        const resultadoOcr = await executarOcrDocumentoContrato(documento);
+        return {
+          success: resultadoOcr.status === "concluido",
+          status: resultadoOcr.status,
+          textoExtraido: resultadoOcr.textoExtraido,
+          pontosImportantes: resultadoOcr.pontosImportantes,
+          ocrExecutado: resultadoOcr.ocrExecutado,
+          motivo: resultadoOcr.motivo ?? null,
+        };
+      }
       const novosPontos = await analisarClausulasContratuaisComIA(
         documento.textoExtraido ?? ""
       );
@@ -276,8 +293,29 @@ export const contratosConveniosRouter = router({
         .where(eq(contratosConveniosDocumentos.id, input.id));
       return {
         success: true,
+        status: documento.status,
+        textoExtraido: documento.textoExtraido ?? "",
         pontosImportantes: novosPontos,
+        ocrExecutado: false,
+        motivo: null,
       };
+    }),
+
+  executarOcrContrato: protectedProcedure
+    .input(z.object({ contratoId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      await ensureContratosConveniosDocumentosTable();
+      const db = dbObrigatorio(await getDb());
+      const contrato = await contratoAutorizado(
+        db,
+        ctx.user,
+        input.contratoId,
+        "gerenciar"
+      );
+      return executarOcrDocumentosContrato({
+        contratoId: contrato.id,
+        estabelecimentoId: contrato.estabelecimentoId,
+      });
     }),
 
   obterDossie: protectedProcedure
@@ -343,6 +381,11 @@ export const contratosConveniosRouter = router({
       operacaoDossieSegura(async () => {
         const db = dbObrigatorio(await getDb());
         await contratoAutorizado(db, ctx.user, input.contratoId, "gerenciar");
+        if (typeof executarOcrDocumentosContrato === "function") {
+          await executarOcrDocumentosContrato({
+            contratoId: input.contratoId,
+          }).catch(() => undefined);
+        }
         return gerarDossieContratualComIA(input.contratoId);
       })
     ),
