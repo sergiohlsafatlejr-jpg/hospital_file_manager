@@ -122,10 +122,14 @@ function ContratoDossieConteudo({
   const [filtroClassificacaoGlosa, setFiltroClassificacaoGlosaState] = useState<string>("TODOS");
   const [selecao, setSelecao] = useState<{ identidade: number; itens: Record<string, boolean> }>({ identidade: 0, itens: {} });
   const guarda = useRef(criarGuardaDossie()).current;
+  const guardaExcel = useRef(criarGuardaDossie()).current;
   const queryClient = useQueryClient();
   const processando = useSyncExternalStore(assinarProcessamentoDossie,
     () => contratoDossieProcessando(contratoId), () => false);
-  useEffect(() => { guarda.ativar(); return () => guarda.desativar(); }, [guarda]);
+  useEffect(() => {
+    guarda.ativar(); guardaExcel.ativar();
+    return () => { guarda.desativar(); guardaExcel.desativar(); };
+  }, [guarda, guardaExcel]);
   useEffect(() => { if (open) setAbaAtiva(abaInicial); }, [open, abaInicial]);
 
   const utils = trpc.useUtils();
@@ -174,9 +178,13 @@ function ContratoDossieConteudo({
   const xmlPronto = dossiePronto && consultaDossiePronta(auditoriaXmlQuery, contratoId);
   const glosasProntas = dossiePronto && consultaDossiePronta(auditoriaGlosasQuery, contratoId);
   const identidade = guarda.atualizar(JSON.stringify([open, contratoId, escopo,
-    competenciaXml, loteXml, competenciaGlosa, filtroClassificacaoGlosa]),
+    competenciaGlosa, filtroClassificacaoGlosa]),
     auditoriaGlosasQuery.data, auditoriaGlosasQuery.dataUpdatedAt,
     glosasProntas && !processando);
+  const identidadeExcel = guardaExcel.atualizar(JSON.stringify([open, contratoId, escopo,
+    competenciaXml, loteXml, competenciaGlosa, filtroClassificacaoGlosa]),
+    auditoriaXmlQuery.data, auditoriaXmlQuery.dataUpdatedAt,
+    xmlPronto && glosasProntas && !processando);
   const glosasSelecionadas = selecao.identidade === identidade && glosasProntas ? selecao.itens : {};
   const selecaoAtual = useRef(selecao);
   selecaoAtual.current = selecao;
@@ -188,7 +196,7 @@ function ContratoDossieConteudo({
   // Consulta ao cache no próprio clique: isFetching/isInvalidated podem mudar
   // antes do próximo render/efeito. Nenhum handler antigo vence este guard.
   const podeUsarBase = (id: number, incluirAuditorias = false) =>
-    guarda.atual(id) && open && !contratoDossieProcessando(contratoId) && dossiePronto &&
+    (incluirAuditorias ? guardaExcel : guarda).atual(id) && open && !contratoDossieProcessando(contratoId) && dossiePronto &&
     cacheDossiePronto(queryClient.getQueryState(dossieKey), dossieQuery.data) &&
     (!incluirAuditorias || (xmlPronto && glosasProntas &&
       cacheDossiePronto(queryClient.getQueryState(xmlKey), auditoriaXmlQuery.data) &&
@@ -197,14 +205,28 @@ function ContratoDossieConteudo({
     guarda.atual(id) && open && !contratoDossieProcessando(contratoId) && dossiePronto && glosasProntas &&
     cacheDossiePronto(queryClient.getQueryState(dossieKey), dossieQuery.data) &&
     cacheDossiePronto(queryClient.getQueryState(glosaKey), auditoriaGlosasQuery.data);
-  // Limpa imediatamente a identidade ao observar fetch/error/invalidation,
-  // incluindo ciclos completos de refetch antes de um render React.
-  useEffect(() => queryClient.getQueryCache().subscribe(event => {
-    if ([dossieKey, xmlKey, glosaKey].some(key => hashKey(key) === hashKey(event.query.queryKey)) &&
-      (event.query.state.fetchStatus !== "idle" || event.query.state.status === "error" || event.query.state.isInvalidated)) {
-      guarda.invalidar();
-    }
-  }), [queryClient, guarda, hashKey(dossieKey), hashKey(xmlKey), hashKey(glosaKey)]);
+  // Só transições do estado protegido revogam handlers/seleção; eventos de
+  // options/observer em erro persistente não são uma nova falha. XML é exclusivo
+  // do Excel. Captura também ciclos completos/removal antes de um render React.
+  useEffect(() => {
+    const hashesBase = [hashKey(dossieKey), hashKey(glosaKey)];
+    const hashXml = hashKey(xmlKey);
+    const anteriores = new Map([dossieKey, glosaKey, xmlKey].map(key =>
+      [hashKey(key), queryClient.getQueryState(key)]));
+    return queryClient.getQueryCache().subscribe(event => {
+      const hash = hashKey(event.query.queryKey);
+      if (!hashesBase.includes(hash) && hash !== hashXml) return;
+      if (event.type !== "updated" && event.type !== "removed") return;
+      const anterior = anteriores.get(hash);
+      const atual = event.type === "removed" ? undefined : event.query.state;
+      anteriores.set(hash, atual);
+      if (anterior?.data === atual?.data && anterior?.dataUpdatedAt === atual?.dataUpdatedAt &&
+        anterior?.status === atual?.status && anterior?.fetchStatus === atual?.fetchStatus &&
+        anterior?.isInvalidated === atual?.isInvalidated) return;
+      if (hashesBase.includes(hash)) guarda.invalidar();
+      guardaExcel.invalidar();
+    });
+  }, [queryClient, guarda, guardaExcel, hashKey(dossieKey), hashKey(xmlKey), hashKey(glosaKey)]);
 
   const executarOperacao = async (tipo: "ia" | "tabela" | "glosas" | "glosas_auto") => {
     const id = identidade;
@@ -254,12 +276,13 @@ function ContratoDossieConteudo({
       if (aindaAtual()) toast.error(error instanceof Error ? error.message : "Falha na operação contratual.");
     } finally { finalizar(); }
   };
-  const chaveOperacao = JSON.stringify([open, contratoId, escopo, competenciaXml, loteXml,
+  const chaveOperacao = JSON.stringify([open, contratoId, escopo,
     competenciaGlosa, filtroClassificacaoGlosa]);
   const operacaoAtual = useRef({ escopo: chaveOperacao });
   if (operacaoAtual.current.escopo !== chaveOperacao) operacaoAtual.current = { escopo: chaveOperacao };
   const invalidarInteracao = () => {
     guarda.invalidar();
+    guardaExcel.invalidar();
     operacaoAtual.current = { escopo: chaveOperacao };
     setGlosasSelecionadas({});
   };
@@ -303,7 +326,7 @@ function ContratoDossieConteudo({
   }, [auditoriaGlosasQuery.data, filtroClassificacaoGlosa]);
 
   const exportarExcelConsultoria = () => {
-    if (!dossie || !podeUsarBase(identidade, true)) return;
+    if (!dossie || !podeUsarBase(identidadeExcel, true)) return;
     const wb = XLSX.utils.book_new();
 
     // Aba 1: Resumo e Pontos Críticos
@@ -467,7 +490,7 @@ function ContratoDossieConteudo({
 
   return (
     <Dialog open={open} onOpenChange={value => {
-      if (!value) { guarda.invalidar(); montado.current = false; setGlosasSelecionadas({}); }
+      if (!value) { guarda.invalidar(); guardaExcel.invalidar(); montado.current = false; setGlosasSelecionadas({}); }
       onOpenChange(value);
     }}>
       <DialogContent className="sm:max-w-[96vw] max-w-[96vw] w-[1440px] max-h-[92vh] overflow-y-auto p-0">
@@ -535,13 +558,20 @@ function ContratoDossieConteudo({
         <div className="p-6">
           {[dossieQuery, auditoriaXmlQuery, auditoriaGlosasQuery].some(q => q.isError) && (
             <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-              Falha ao atualizar dossiê/auditoria. Dados em cache não estão autorizados para aplicação ou exportação.
+              Falha ao atualizar dossiê/auditoria. Exportação completa bloqueada até revalidação.
+              {glosasProntas && !processando
+                ? " Dossiê e glosas atualizados: aplicação de fundamentação nas glosas disponível, independentemente do XML."
+                : " Aplicação de fundamentação nas glosas bloqueada enquanto dossiê/glosas não estiverem atualizados ou houver operação em processamento."}
               {[dossieQuery, auditoriaXmlQuery, auditoriaGlosasQuery].filter(q => q.isError).map((q, i) => <p key={i}>{q.error?.message}</p>)}
             </div>
           )}
           {(!dossiePronto || !xmlPronto || !glosasProntas || processando) && dossie && (
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p role="status" className="text-xs text-amber-800">Base em atualização, desatualizada ou operação em processamento. Aplicação e exportação bloqueadas até revalidação.</p>
+              <p role="status" className="text-xs text-amber-800">
+                {glosasProntas && !processando
+                  ? "Dossiê e glosas atualizados: aplicação de fundamentação nas glosas disponível. XML pendente de revalidação; exportação completa bloqueada."
+                  : "Dossiê/glosas em atualização, desatualizados ou operação em processamento. Aplicação de fundamentação nas glosas e exportação completa bloqueadas."}
+              </p>
               <Button size="sm" variant="outline"
                 disabled={processando || dossieQuery.isFetching || auditoriaXmlQuery.isFetching || auditoriaGlosasQuery.isFetching}
                 onClick={() => {
@@ -1085,20 +1115,20 @@ function ContratoDossieConteudo({
                         <Input
                           placeholder="Competência (ex: 2026-03)"
                           value={competenciaXml}
-                          onChange={e => { invalidarInteracao(); setCompetenciaXml(e.target.value); }}
+                          onChange={e => { guardaExcel.invalidar(); setCompetenciaXml(e.target.value); }}
                           className="w-44 h-9 text-xs"
                         />
                         <Input
                           placeholder="Lote XML (opcional)"
                           value={loteXml}
-                          onChange={e => { invalidarInteracao(); setLoteXml(e.target.value); }}
+                          onChange={e => { guardaExcel.invalidar(); setLoteXml(e.target.value); }}
                           className="w-40 h-9 text-xs"
                         />
                         <Button
                           size="sm"
                           variant="outline"
                           disabled={auditoriaXmlQuery.isFetching || processando}
-                          onClick={() => { guarda.invalidar(); void auditoriaXmlQuery.refetch(); }}
+                          onClick={() => { guardaExcel.invalidar(); void auditoriaXmlQuery.refetch(); }}
                         >
                           <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                           Recalcular
