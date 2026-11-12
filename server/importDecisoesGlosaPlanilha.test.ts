@@ -4,6 +4,7 @@ vi.mock("./db", () => ({ getDb: vi.fn() }));
 
 import {
   casarDecisoesComDemonstrativo,
+  montarMotivosDecisao,
   normalizarDecisaoPlanilha,
   normalizarIdentificador,
   type CandidatoDemonstrativo,
@@ -22,6 +23,25 @@ describe("normalizarDecisaoPlanilha", () => {
     expect(normalizarDecisaoPlanilha("Avaliar")).toBeNull();
     expect(normalizarDecisaoPlanilha("")).toBeNull();
     expect(normalizarDecisaoPlanilha(null)).toBeNull();
+  });
+});
+
+describe("montarMotivosDecisao", () => {
+  it("Glosa Aceita usa a Sugestão da consultoria e guarda as duas no motivo", () => {
+    expect(montarMotivosDecisao("aceitar", "Conferir senha", "Glosa Aceita Pago conforme Contrato")).toEqual({
+      motivoAceite: "Glosa Aceita Pago conforme Contrato",
+      motivo: "Glosa Aceita Pago conforme Contrato\nOrientação: Conferir senha",
+    });
+  });
+  it("Glosa Aceita sem sugestão usa a justificativa", () => {
+    expect(montarMotivosDecisao("aceitar", "Conferir senha", null)).toEqual({
+      motivoAceite: "Conferir senha", motivo: "Conferir senha",
+    });
+  });
+  it("Recursar usa somente a justificativa", () => {
+    expect(montarMotivosDecisao("recursar", "Texto do recurso", "Recursar na Orizon")).toEqual({
+      motivo: "Texto do recurso", motivoAceite: null,
+    });
   });
 });
 
@@ -109,12 +129,12 @@ describe("extrairDecisoesDeLinhas", () => {
     ["Oportunidades Pendentes de Recurso"],
     ['Preencha na coluna amarela B ("VAMOS RECURSAR?") Sim, Não ou Avaliar'],
     [
-      "Grupo", "VAMOS RECURSAR? (Sim / Não / Avaliar)", "Sugestão", "Nº Protocolo", "Nº Guia Prestador",
+      "Grupo", "VAMOS RECURSAR? (Sim / Não / Avaliar)", "Sugestão da consultoria", "Nº Protocolo", "Nº Guia Prestador",
       "Nº Guia Operadora", "Seq Item", "Código Procedimento", "Descrição do Item", "Vl. Glosado (R$)",
       "Códigos Glosa", "Justificativa / Orientação para Recurso", "Motivo se NÃO / observação",
     ],
     ["A", "Sim", "x", "330216425600", "23616041", "1300", "0", "78299748", "FILTRO", "1002", "2012", "Pagar", null],
-    ["A", "Não", "x", "340215424001", "125", "2400", "3", "0000083401", "BIOVISC", "8985.6", "1414", "Aceitar", null],
+    ["A", "Não", "Glosa Aceita Pago conforme Contrato", "340215424001", "125", "2400", "3", "0000083401", "BIOVISC", "8985.6", "1414", "Aceitar", null],
     ["A", "Avaliar", "x", "1", "2", "3", "4", "5", "6", "7", "8", "9", null],
     ["A", null, "x", "1", "2", "3", "4", "5", "6", "7", "8", "9", null],
     [null, null, null],
@@ -129,7 +149,9 @@ describe("extrairDecisoesDeLinhas", () => {
       linha: 4, decisao: "Sim", protocolo: "330216425600", guiaPrestador: "23616041", guiaOperadora: "1300",
       sequencialItem: "0", codigoItem: "78299748", valorGlosa: "1002", justificativa: "Pagar",
     });
-    expect(r.linhas[1]).toMatchObject({ decisao: "Não", codigoItem: "0000083401", justificativa: "Aceitar" });
+    expect(r.linhas[1]).toMatchObject({
+      decisao: "Não", codigoItem: "0000083401", justificativa: "Aceitar", observacao: "Glosa Aceita Pago conforme Contrato",
+    });
   });
 
   it("falha quando a coluna VAMOS RECURSAR? não existe", () => {

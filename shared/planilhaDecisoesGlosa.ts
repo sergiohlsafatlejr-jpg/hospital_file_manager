@@ -5,6 +5,7 @@
  * Colunas reconhecidas pelo cabeçalho (sem depender da posição):
  *  - "VAMOS RECURSAR? (Sim / Não / Avaliar)"   -> decisão (obrigatória)
  *  - "Justificativa / Orientação para Recurso" -> justificativa
+ *  - "Sugestão da consultoria"                 -> observação (motivo da Glosa Aceita)
  *  - "Nº Protocolo", "Nº Guia Prestador", "Nº Guia Operadora", "Seq Item",
  *    "Código Procedimento", "Descrição do Item", "Vl. Glosado (R$)"
  */
@@ -20,6 +21,8 @@ export interface LinhaDecisaoExtraida {
   descricaoItem: string | null;
   valorGlosa: string | null;
   justificativa: string | null;
+  /** Coluna "Sugestão da consultoria" (C) — motivo real informado pela equipe; usado na Glosa Aceita */
+  observacao: string | null;
 }
 
 export interface ResultadoExtracaoDecisoes {
@@ -47,6 +50,7 @@ const texto = (v: unknown): string | null => {
 const COLUNAS: Record<keyof Omit<LinhaDecisaoExtraida, "linha">, RegExp> = {
   decisao: /^vamos recursar/,
   justificativa: /^justificativa/,
+  observacao: /^sugestao da consultoria/,
   protocolo: /^n.? ?protocolo$|^protocolo$|^numero protocolo$/,
   guiaPrestador: /guia prestador/,
   guiaOperadora: /guia operadora/,
@@ -115,6 +119,7 @@ export function extrairDecisoesDeLinhas(rows: unknown[][]): ResultadoExtracaoDec
       descricaoItem: get(row, "descricaoItem"),
       valorGlosa: get(row, "valorGlosa"),
       justificativa: get(row, "justificativa"),
+      observacao: get(row, "observacao"),
     });
   }
   return { linhaCabecalho: idxCab + 1, totalLinhasDados, linhas, contagem, colunasAusentes };

@@ -2598,6 +2598,7 @@ export const appRouter = router({
                 descricaoItem: z.string().max(1000).nullish(),
                 valorGlosa: z.union([z.string().max(50), z.number()]).nullish(),
                 justificativa: z.string().max(10000).nullish(),
+                observacao: z.string().max(10000).nullish(),
               })
             )
             .min(1)

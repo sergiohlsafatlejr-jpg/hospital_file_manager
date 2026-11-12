@@ -156,7 +156,8 @@ export function ImportarDecisoesGlosaDialog({
           </DialogTitle>
           <DialogDescription>
             Coluna <b>VAMOS RECURSAR?</b>: <b>Sim</b> = Recursar · <b>Não</b> = Glosa Aceita · Avaliar/vazio = ignorado.
-            A coluna <b>Justificativa / Orientação para Recurso</b> é gravada como justificativa do item.
+            A coluna <b>Justificativa / Orientação para Recurso</b> é gravada como justificativa do item; na Glosa Aceita,
+            o motivo do aceite vem da coluna <b>Sugestão da consultoria</b>.
           </DialogDescription>
         </DialogHeader>
 

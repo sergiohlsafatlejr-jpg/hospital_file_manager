@@ -8,7 +8,8 @@
  *      Não     -> classificação "aceitar" (Glosa Aceita)
  *      Avaliar / vazio -> ignorado (permanece como está no portal)
  *  - Coluna "Justificativa / Orientação para Recurso" -> justificativa gravada no item
- *    (classificacaoMotivo e, quando aceita, motivoAceite).
+ *    (classificacaoMotivo). Na Glosa Aceita, o motivoAceite usa a coluna
+ *    "Sugestão da consultoria" (motivo real da equipe), com fallback para a justificativa.
  *
  * O vínculo com o item glosado do portal (tabela demonstrativo) é feito por:
  *   Guia (operadora OU prestador) + Código do item (obrigatórios)
@@ -33,6 +34,8 @@ export interface LinhaDecisaoPlanilha {
   descricaoItem?: string | null;
   valorGlosa?: string | number | null;
   justificativa?: string | null;
+  /** "Sugestão da consultoria" (coluna C) — motivo real da equipe, usado na Glosa Aceita */
+  observacao?: string | null;
 }
 
 export interface CandidatoDemonstrativo {
@@ -56,6 +59,27 @@ export interface ResultadoCasamento {
 }
 
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v).trim());
+
+/**
+ * Monta os textos gravados no item:
+ *  - Recursar: motivo = Justificativa / Orientação para Recurso.
+ *  - Glosa Aceita: motivoAceite = Sugestão da consultoria (coluna C, motivo real da equipe),
+ *    com fallback para a Justificativa; o motivo da classificação guarda as duas juntas.
+ */
+export function montarMotivosDecisao(
+  decisao: DecisaoPlanilha,
+  justificativa: unknown,
+  observacao: unknown,
+): { motivo: string; motivoAceite: string | null } {
+  const just = s(justificativa);
+  const obs = s(observacao);
+  if (decisao === "recursar") {
+    return { motivo: just || "Recursar (importado da planilha)", motivoAceite: null };
+  }
+  const motivoAceite = obs || just || "Glosa aceita (importado da planilha)";
+  const motivo = obs && just && obs !== just ? `${obs}\nOrientação: ${just}` : motivoAceite;
+  return { motivo, motivoAceite };
+}
 
 /** Sim -> recursar, Não -> aceitar; qualquer outro valor -> null (ignorar). */
 export function normalizarDecisaoPlanilha(valor: unknown): DecisaoPlanilha | null {
@@ -233,15 +257,15 @@ export async function importarDecisoesGlosaPlanilha(input: ImportarDecisoesInput
     for (const r of casamentos) {
       if (r.status !== "casado" || !r.demonstrativoId || !r.decisao) continue;
       const item = porId.get(r.demonstrativoId)!;
-      const justificativa = s(linhaPorNumero.get(r.linha)?.justificativa) || null;
-      const motivo = justificativa || (r.decisao === "aceitar" ? "Glosa aceita (importado da planilha)" : "Recursar (importado da planilha)");
+      const linhaOrigem = linhaPorNumero.get(r.linha);
+      const { motivo, motivoAceite } = montarMotivosDecisao(r.decisao, linhaOrigem?.justificativa, linhaOrigem?.observacao);
       await db
         .update(demonstrativo)
         .set({
           classificacaoGlosa: r.decisao,
           classificacaoConfianca: 100,
           classificacaoMotivo: motivo,
-          motivoAceite: r.decisao === "aceitar" ? motivo : null,
+          motivoAceite,
           dataAceite: r.decisao === "aceitar" ? new Date() : null,
         })
         .where(eq(demonstrativo.id, item.id));
