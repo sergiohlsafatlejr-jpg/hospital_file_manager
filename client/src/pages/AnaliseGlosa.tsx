@@ -43,6 +43,7 @@ import { Gavel, Search, CheckCircle2, Loader2, Sparkles, BookOpen, FileText, Sen
 import * as XLSX from "xlsx";
 import { GLOSAS_TISS, GlosaInfo } from "../../../shared/glossaryGlosas";
 import { formatDateBR, safeParseDate } from "@/lib/dateUtils";
+import { ImportarDecisoesGlosaDialog } from "@/components/glosas/ImportarDecisoesGlosaDialog";
 import {
   BarChart,
   Bar,
@@ -119,6 +120,7 @@ export default function AnaliseGlosa() {
   const [paginaAceitos, setPaginaAceitos] = useState(1);
   const [dialogAceiteLote, setDialogAceiteLote] = useState(false);
   const [aceitandoLote, setAceitandoLote] = useState(false);
+  const [dialogImportarDecisoes, setDialogImportarDecisoes] = useState(false);
 
   // Buscar dados gerais
   const { data: glosaPorConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
@@ -482,6 +484,10 @@ export default function AnaliseGlosa() {
             <Button variant="outline" onClick={handleRefresh}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Atualizar
+            </Button>
+            <Button variant="outline" onClick={() => setDialogImportarDecisoes(true)} disabled={!estabelecimentoAtual?.id}>
+              <FileText className="h-4 w-4 mr-2" />
+              Importar decisões (Excel)
             </Button>
             <Button onClick={handleExportExcel}>
               <Download className="h-4 w-4 mr-2" />
@@ -1952,6 +1958,17 @@ export default function AnaliseGlosa() {
           </DialogContent>
         </Dialog>
       </div>
+      <ImportarDecisoesGlosaDialog
+        open={dialogImportarDecisoes}
+        onOpenChange={setDialogImportarDecisoes}
+        estabelecimentoId={estabelecimentoAtual?.id}
+        convenios={convenios?.map((c: any) => ({ id: c.id, nome: c.nome }))}
+        convenioInicial={convenioItens}
+        onImportado={() => {
+          refetchItens();
+          refetchAceitos();
+        }}
+      />
     </DashboardLayout>
   );
 }

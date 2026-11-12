@@ -15,6 +15,7 @@ import {
   dadosPagamentoManual,
   pagamentoRecursoManualSchema,
 } from "./recursoPagamentoManual";
+import { importarDecisoesGlosaPlanilha } from "./importDecisoesGlosaPlanilhaService";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -2575,6 +2576,55 @@ export const appRouter = router({
         );
 
         return { success: true };
+      }),
+
+    // Importar decisões (Sim = recursar / Não = glosa aceita) de planilha Excel
+    importarDecisoesPlanilha: protectedProcedure
+      .input(
+        z.object({
+          estabelecimentoId: z.number(),
+          convenioId: z.number().optional(),
+          aplicar: z.boolean().default(false),
+          linhas: z
+            .array(
+              z.object({
+                linha: z.number(),
+                decisao: z.string().max(50),
+                protocolo: z.string().max(100).nullish(),
+                guiaPrestador: z.string().max(100).nullish(),
+                guiaOperadora: z.string().max(100).nullish(),
+                sequencialItem: z.union([z.string().max(50), z.number()]).nullish(),
+                codigoItem: z.string().max(100).nullish(),
+                descricaoItem: z.string().max(1000).nullish(),
+                valorGlosa: z.union([z.string().max(50), z.number()]).nullish(),
+                justificativa: z.string().max(10000).nullish(),
+              })
+            )
+            .min(1)
+            .max(20000),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          input.aplicar ? "editar" : "visualizar"
+        );
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            input.aplicar ? "editar" : "visualizar"
+          );
+        }
+        return importarDecisoesGlosaPlanilha({
+          estabelecimentoId: input.estabelecimentoId,
+          convenioId: input.convenioId,
+          linhas: input.linhas,
+          aplicar: input.aplicar,
+          userId: ctx.user.id,
+        });
       }),
 
     // Sugerir classificação com base no histórico
