@@ -772,6 +772,35 @@ describe("Issue182 — gates adicionais", () => {
       expect(db.data).toEqual(before);
     }
   );
+  it("fallback de faturamento_unificado usa lotePrestador e rejeita coluna inexistente numeroLote", async () => {
+    const db = makeDb(
+      fresh({
+        tabelasPreco: [preco(100, 10, "100.00", "2026-01-01")],
+      }),
+      {
+        raw(q) {
+          if (/\bfu\.numeroLote\b/.test(q.sql)) {
+            throw new Error("BAD_PHYSICAL_COLUMN_FU_NUMEROLOTE");
+          }
+          if (/FROM faturamento_unificado fu/.test(q.sql)) {
+            return [[xml({ numeroLote: "LOTE-FU-01" })], []];
+          }
+          return undefined;
+        },
+      }
+    );
+    const r = await service(db).auditarCobrancaXmlPorContrato({
+      contratoId: 1,
+      loteXml: "LOTE-FU-01",
+    });
+    expect(r.itens).toHaveLength(1);
+    expect(r.itens[0].numeroLote).toBe("LOTE-FU-01");
+    expect(
+      db.trace
+        .filter((q: any) => /FROM faturamento_unificado fu/.test(q.sql || ""))
+        .every((q: any) => q.sql.includes("fu.lotePrestador"))
+    ).toBe(true);
+  });
   it("erros de leitura são sanitizados, sem SQL/cause/driver", async () => {
     const db = makeDb(fresh(), { failSelect: "contratos_convenios" });
     await expect(service(db).obterDossieContratual(1)).rejects.toSatisfy(

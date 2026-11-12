@@ -1692,7 +1692,13 @@ async function auditarCobrancaXmlPorContratoInterno(params: {
     WHERE estabelecimentoId = ${estabelecimentoId}
       AND convenioId = ${convenioId}
       AND numero_lote IS NOT NULL AND numero_lote != ''
-    ORDER BY numero_lote DESC
+    UNION
+    SELECT DISTINCT lotePrestador as lote
+    FROM faturamento_unificado
+    WHERE estabelecimentoId = ${estabelecimentoId}
+      AND convenioId = ${convenioId}
+      AND lotePrestador IS NOT NULL AND lotePrestador != ''
+    ORDER BY lote DESC
     LIMIT 60
   `);
   const lotesDisponiveis = (lotesRows as unknown as any[])
@@ -1746,13 +1752,13 @@ async function auditarCobrancaXmlPorContratoInterno(params: {
       condicoesFu.push(sql`fu.competencia LIKE ${`${params.competencia}%`}`);
     }
     if (params.loteXml && params.loteXml !== "todos") {
-      condicoesFu.push(sql`fu.numeroLote = ${params.loteXml}`);
+      condicoesFu.push(sql`fu.lotePrestador = ${params.loteXml}`);
     }
     const [fuRows] = await db.execute(sql`
       SELECT
         fu.id,
         COALESCE(fu.numeroGuia, fu.contaNumero, '-') as numeroGuia,
-        fu.numeroLote as numeroLote,
+        fu.lotePrestador as numeroLote,
         fu.competencia,
         DATE_FORMAT(fu.dataExecucao, '%Y-%m-%d') as dataExecucao,
         COALESCE(fu.codigoItem, fu.codigoItemTuss, '') as codigoItem,

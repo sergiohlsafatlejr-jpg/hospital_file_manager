@@ -172,7 +172,7 @@ function ContratoDossieConteudo({
   const glosaKey = getQueryKey(trpc.contratosConvenios.auditarGlosasContrato, glosaInput, "query");
   const dossiePronto = open && consultaDossiePronta(dossieQuery, contratoId);
   const xmlPronto = dossiePronto && consultaDossiePronta(auditoriaXmlQuery, contratoId);
-  const glosasProntas = xmlPronto && consultaDossiePronta(auditoriaGlosasQuery, contratoId);
+  const glosasProntas = dossiePronto && consultaDossiePronta(auditoriaGlosasQuery, contratoId);
   const identidade = guarda.atualizar(JSON.stringify([open, contratoId, escopo,
     competenciaXml, loteXml, competenciaGlosa, filtroClassificacaoGlosa]),
     auditoriaGlosasQuery.data, auditoriaGlosasQuery.dataUpdatedAt,
@@ -193,7 +193,9 @@ function ContratoDossieConteudo({
     (!incluirAuditorias || (xmlPronto && glosasProntas &&
       cacheDossiePronto(queryClient.getQueryState(xmlKey), auditoriaXmlQuery.data) &&
       cacheDossiePronto(queryClient.getQueryState(glosaKey), auditoriaGlosasQuery.data)));
-  const podeSelecionar = (id: number) => podeUsarBase(id, true) && glosasProntas &&
+  const podeSelecionar = (id: number) =>
+    guarda.atual(id) && open && !contratoDossieProcessando(contratoId) && dossiePronto && glosasProntas &&
+    cacheDossiePronto(queryClient.getQueryState(dossieKey), dossieQuery.data) &&
     cacheDossiePronto(queryClient.getQueryState(glosaKey), auditoriaGlosasQuery.data);
   // Limpa imediatamente a identidade ao observar fetch/error/invalidation,
   // incluindo ciclos completos de refetch antes de um render React.
@@ -204,11 +206,17 @@ function ContratoDossieConteudo({
     }
   }), [queryClient, guarda, hashKey(dossieKey), hashKey(xmlKey), hashKey(glosaKey)]);
 
-  const executarOperacao = async (tipo: "ia" | "tabela" | "glosas") => {
+  const executarOperacao = async (tipo: "ia" | "tabela" | "glosas" | "glosas_auto") => {
     const id = identidade;
-    if (!contratoId || !(tipo === "glosas" ? podeSelecionar(id) : podeUsarBase(id))) return;
-    const selecionados = auditoriaGlosasQuery.data?.itens.filter(i => glosasSelecionadas[`${i.origem}:${i.id}`]) ?? [];
-    if (tipo === "glosas" && (selecionados.length === 0 || selecionados.length > MAX_GLOSAS_DOSSIE)) return;
+    if (!contratoId || !(tipo === "glosas" || tipo === "glosas_auto" ? podeSelecionar(id) : podeUsarBase(id))) return;
+    const selecionados =
+      tipo === "glosas_auto"
+        ? (auditoriaGlosasQuery.data?.itens ?? [])
+            .filter(i => filtroClassificacaoGlosa === "TODOS" || i.classificacaoContrato === filtroClassificacaoGlosa)
+            .filter(i => i.classificacaoContrato !== "ajuste_contratual_legitimo" && i.valorRecursoSugerido > 0)
+            .slice(0, MAX_GLOSAS_DOSSIE)
+        : auditoriaGlosasQuery.data?.itens.filter(i => glosasSelecionadas[`${i.origem}:${i.id}`]) ?? [];
+    if ((tipo === "glosas" || tipo === "glosas_auto") && (selecionados.length === 0 || selecionados.length > MAX_GLOSAS_DOSSIE)) return;
     const finalizar = iniciarProcessamentoDossie(contratoId);
     if (!finalizar) return;
     // Identidade de operação independente do render de isPending/processando.
@@ -452,6 +460,9 @@ function ContratoDossieConteudo({
     setGlosasSelecionadas(novo);
   };
 
+  const qtdContestaveisLote = itensGlosaFiltrados.filter(
+    i => i.classificacaoContrato !== "ajuste_contratual_legitimo" && i.valorRecursoSugerido > 0
+  ).slice(0, MAX_GLOSAS_DOSSIE).length;
   const qtdGlosasSelecionadas = Object.values(glosasSelecionadas).filter(Boolean).length;
 
   return (
@@ -1546,7 +1557,27 @@ function ContratoDossieConteudo({
                               <strong>{dossie.numeroContrato || `#${dossie.contratoId}`}</strong>, o arquivo PDF lido e o valor contratado na tabela.
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {!glosasProntas && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  processando ||
+                                  dossieQuery.isFetching ||
+                                  auditoriaGlosasQuery.isFetching
+                                }
+                                onClick={() => {
+                                  invalidarInteracao();
+                                  void dossieQuery.refetch();
+                                  void auditoriaXmlQuery.refetch();
+                                  void auditoriaGlosasQuery.refetch();
+                                }}
+                              >
+                                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                                Revalidar Agora
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
@@ -1569,6 +1600,21 @@ function ContratoDossieConteudo({
                                 <Gavel className="h-4 w-4 mr-1.5" />
                               )}
                               Aplicar Fundamentação nas Glosas ({qtdGlosasSelecionadas})
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                              disabled={
+                                qtdContestaveisLote === 0 || !glosasProntas || processando
+                              }
+                              onClick={() => void executarOperacao("glosas_auto")}
+                            >
+                              {aplicarFundamentacaoMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-4 w-4 mr-1.5" />
+                              )}
+                              Responder Recursos Automaticamente ({qtdContestaveisLote})
                             </Button>
                           </div>
                         </div>
